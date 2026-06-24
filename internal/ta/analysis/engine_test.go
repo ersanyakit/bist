@@ -81,6 +81,9 @@ func TestAnalyzeSymbolBuildsCompleteTimeframeContract(t *testing.T) {
 	if result.PriceQuality == nil {
 		t.Fatal("expected equity analysis to carry a price quality gate")
 	}
+	if !result.FinTradeBench.Computed || len(result.FinTradeBench.TradingSignals) == 0 {
+		t.Fatalf("expected FinTradeBench evidence layer: %+v", result.FinTradeBench)
+	}
 	if !result.NextSessionForecast.Computed || result.NextSessionForecast.PredictedOpen <= 0 || result.NextSessionForecast.PredictedClose <= 0 {
 		t.Fatalf("expected symbol-level next-session open/close forecast: %+v", result.NextSessionForecast)
 	}

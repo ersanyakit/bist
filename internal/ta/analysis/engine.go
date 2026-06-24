@@ -18,6 +18,7 @@ import (
 	"hissebot/internal/ta/contrarian"
 	"hissebot/internal/ta/corporateactions"
 	"hissebot/internal/ta/datasource"
+	"hissebot/internal/ta/fintradebench"
 	"hissebot/internal/ta/forecastpolicy"
 	"hissebot/internal/ta/formations"
 	"hissebot/internal/ta/indicators"
@@ -82,6 +83,7 @@ type SymbolAnalysis struct {
 	NextSessionForecast     NextSessionForecast               `json:"next_session_forecast"`
 	MLForecast              taml.ForecastReport               `json:"ml_forecast"`
 	Professional            professional.Report               `json:"professional"`
+	FinTradeBench           fintradebench.Report              `json:"fintradebench"`
 	Behavioral              contrarian.Report                 `json:"behavioral"`
 	InvestorQA              investorqa.Report                 `json:"investor_qa"`
 	MatriksFormations       *matriksformations.TickerSnapshot `json:"matriks_formations,omitempty"`
@@ -409,6 +411,17 @@ func (e *Engine) AnalyzeSymbol(ctx context.Context, req SymbolRequest) (SymbolAn
 	technicalOverall := averageTimeframeScore(result.Timeframes)
 	result.OverallScore = technicalOverall
 	result.Professional = e.professionalReport(ctx, result, corporateActions)
+	if ftbTF, ok := selectFinTradeBenchTimeframe(result.Timeframes); ok {
+		result.FinTradeBench = fintradebench.Analyze(fintradebench.Input{
+			Symbol:       result.Symbol,
+			AssetType:    result.AssetType,
+			AsOf:         e.options.AsOf,
+			LastClose:    ftbTF.LastClose,
+			Candles:      ftbTF.Candles,
+			Indicators:   ftbTF.Indicators,
+			Professional: result.Professional,
+		})
+	}
 	result = ApplyFundamentalContextToNextSessionForecast(result)
 	result = ApplyBISTBulletinContextToNextSessionForecast(result)
 	result = ApplyBISTEquityTickSizeToTechnicalLevels(result)
@@ -752,6 +765,23 @@ func averageTimeframeScore(timeframes map[string]TimeframeAnalysis) float64 {
 		total += tf.Score
 	}
 	return mathutil.Clamp(mathutil.SafeDiv(total, float64(len(timeframes))), 0, 100)
+}
+
+func selectFinTradeBenchTimeframe(timeframes map[string]TimeframeAnalysis) (TimeframeAnalysis, bool) {
+	for _, key := range []string{"1D", "1W", "1M"} {
+		if tf, ok := timeframes[key]; ok {
+			return tf, true
+		}
+	}
+	keys := make([]string, 0, len(timeframes))
+	for key := range timeframes {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		return TimeframeAnalysis{}, false
+	}
+	return timeframes[keys[0]], true
 }
 
 func appendUniqueAnalysisString(items []string, value string) []string {

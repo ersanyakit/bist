@@ -415,28 +415,30 @@ func (m MarketContext) MarshalJSON() ([]byte, error) {
 }
 
 type ValuationAnalysis struct {
-	LatestYear       int                `json:"latest_year"`
-	LatestQuarter    string             `json:"latest_quarter"`
-	SectorModel      string             `json:"sector_model"`
-	PaidCapital      float64            `json:"paid_capital"`
-	MarketCap        float64            `json:"market_cap"`
-	EnterpriseValue  float64            `json:"enterprise_value"`
-	NetDebt          float64            `json:"net_debt"`
-	SalesTTM         float64            `json:"sales_ttm"`
-	EBITTTM          float64            `json:"ebit_ttm"`
-	EBITDATTM        float64            `json:"ebitda_ttm"`
-	NetIncomeTTM     float64            `json:"net_income_ttm"`
-	OperatingCashTTM float64            `json:"operating_cash_ttm"`
-	FreeCashFlowTTM  float64            `json:"free_cash_flow_ttm"`
-	Equity           float64            `json:"equity"`
-	TotalAssets      float64            `json:"total_assets"`
-	Ratios           map[string]float64 `json:"ratios"`
-	AllowedRatios    []string           `json:"allowed_ratios,omitempty"`
-	SuppressedRatios []string           `json:"suppressed_ratios,omitempty"`
-	SectorMetrics    map[string]float64 `json:"sector_metrics,omitempty"`
-	FairValue        FairValueRange     `json:"fair_value"`
-	DCF              DCFAnalysis        `json:"dcf"`
-	Flags            []string           `json:"flags"`
+	LatestYear        int                `json:"latest_year"`
+	LatestQuarter     string             `json:"latest_quarter"`
+	SectorModel       string             `json:"sector_model"`
+	PaidCapital       float64            `json:"paid_capital"`
+	MarketCap         float64            `json:"market_cap"`
+	EnterpriseValue   float64            `json:"enterprise_value"`
+	TotalDebt         float64            `json:"total_debt"`
+	DebtDataAvailable bool               `json:"debt_data_available"`
+	NetDebt           float64            `json:"net_debt"`
+	SalesTTM          float64            `json:"sales_ttm"`
+	EBITTTM           float64            `json:"ebit_ttm"`
+	EBITDATTM         float64            `json:"ebitda_ttm"`
+	NetIncomeTTM      float64            `json:"net_income_ttm"`
+	OperatingCashTTM  float64            `json:"operating_cash_ttm"`
+	FreeCashFlowTTM   float64            `json:"free_cash_flow_ttm"`
+	Equity            float64            `json:"equity"`
+	TotalAssets       float64            `json:"total_assets"`
+	Ratios            map[string]float64 `json:"ratios"`
+	AllowedRatios     []string           `json:"allowed_ratios,omitempty"`
+	SuppressedRatios  []string           `json:"suppressed_ratios,omitempty"`
+	SectorMetrics     map[string]float64 `json:"sector_metrics,omitempty"`
+	FairValue         FairValueRange     `json:"fair_value"`
+	DCF               DCFAnalysis        `json:"dcf"`
+	Flags             []string           `json:"flags"`
 }
 
 type DCFAnalysis struct {
@@ -2962,7 +2964,7 @@ func buildValuation(fin financialFile, price float64, latest period, sector stri
 	equity := schemaFieldValueOrZero(fin, schema, fieldEquity, latest)
 	totalAssets := schemaFieldValueOrZero(fin, schema, fieldTotalAssets, latest)
 	cash := schemaFieldValueOrZero(fin, schema, fieldCash, latest)
-	debt, _, _ := schemaSumFieldValues(fin, schema, fieldDebt, latest)
+	debt, _, okDebt := schemaSumFieldValues(fin, schema, fieldDebt, latest)
 	netDebt := debt - cash
 	marketCap := price * paidCapital
 	flags := append([]string{}, schema.Warnings...)
@@ -3019,23 +3021,25 @@ func buildValuation(fin financialFile, price float64, latest period, sector stri
 		flags = append(flags, "paid_capital_unavailable")
 	}
 	valuation := ValuationAnalysis{
-		LatestYear:       latest.Year,
-		LatestQuarter:    quarterName(latest.Quarter),
-		PaidCapital:      paidCapital,
-		MarketCap:        marketCap,
-		EnterpriseValue:  marketCap + netDebt,
-		NetDebt:          netDebt,
-		SalesTTM:         sales,
-		EBITTTM:          ebit,
-		EBITDATTM:        ebitda,
-		NetIncomeTTM:     netIncome,
-		OperatingCashTTM: operatingCash,
-		FreeCashFlowTTM:  freeCash,
-		Equity:           equity,
-		TotalAssets:      totalAssets,
-		Ratios:           ratios,
-		SectorMetrics:    sectorMetrics(sector, equity, totalAssets, netDebt, sales, netIncome, paidCapital),
-		Flags:            flags,
+		LatestYear:        latest.Year,
+		LatestQuarter:     quarterName(latest.Quarter),
+		PaidCapital:       paidCapital,
+		MarketCap:         marketCap,
+		EnterpriseValue:   marketCap + netDebt,
+		TotalDebt:         debt,
+		DebtDataAvailable: okDebt,
+		NetDebt:           netDebt,
+		SalesTTM:          sales,
+		EBITTTM:           ebit,
+		EBITDATTM:         ebitda,
+		NetIncomeTTM:      netIncome,
+		OperatingCashTTM:  operatingCash,
+		FreeCashFlowTTM:   freeCash,
+		Equity:            equity,
+		TotalAssets:       totalAssets,
+		Ratios:            ratios,
+		SectorMetrics:     sectorMetrics(sector, equity, totalAssets, netDebt, sales, netIncome, paidCapital),
+		Flags:             flags,
 	}
 	applySectorValuationRules(&valuation, sector)
 	applyBankBookValueReconciliation(&valuation)
