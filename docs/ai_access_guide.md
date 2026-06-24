@@ -136,7 +136,7 @@ Bir AI ajani tek sembol analizi icin su sirayi izlemelidir:
 Ornek:
 
 ```bash
-go run ./cmd/hissebot analyze -symbol ASELS -timeframes 1D,1W,1M
+go run ./cmd/hissebot analyze -symbol ASELS -provider bistdb -timeframes 1D,1W,1M
 go run ./cmd/hissebot analyze -symbol BTCUSDT -timeframes 1D,1W,1M
 ```
 
@@ -200,7 +200,7 @@ Rapor uret:
 ```bash
 curl -X POST http://127.0.0.1:1453/reports \
   -H 'Content-Type: application/json' \
-  -d '{"symbol":"ASELS","provider":"tradingview","mode":"production","timeframes":["1D","1W","1M"]}'
+  -d '{"symbol":"ASELS","provider":"bistdb","mode":"production","timeframes":["1D","1W","1M"]}'
 ```
 
 KAP extract endpointleri:

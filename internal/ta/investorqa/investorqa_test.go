@@ -194,6 +194,58 @@ func TestAnalyzeEquityMissingIntrinsicValueDoesNotActivateSell(t *testing.T) {
 	}
 }
 
+func TestAnalyzeDoesNotClaimSafetyMarginWhenValuationSuppressed(t *testing.T) {
+	report := Analyze(Input{
+		Symbol:       "ASELS",
+		Currency:     "TRY",
+		AssetType:    ohlcv.AssetTypeEquity,
+		OverallScore: 45,
+		OverallBias:  "neutral",
+		Professional: professional.Report{
+			Coverage:    professional.CoverageReport{Score: 85, Available: []string{"ohlcv", "financials"}},
+			DataQuality: 85,
+			ValueInvesting: value.Report{
+				Computed:     false,
+				CurrentPrice: 394.75,
+				IntrinsicValue: value.IntrinsicValueReport{
+					Computed: false,
+					Base:     0,
+				},
+				MarginOfSafety: value.MarginOfSafetyReport{
+					Computed:    false,
+					BasePct:     0,
+					RequiredPct: 25,
+				},
+				Summary: "İçsel değer, hedef fiyat ve güvenlik marjı bastırıldı.",
+			},
+		},
+		Timeframes: map[string]Timeframe{
+			"1D": {
+				LastClose:         394.75,
+				Score:             42,
+				TrendBias:         "neutral",
+				NearestResistance: &ohlcv.SupportResistanceLevel{Price: 411.25},
+				TradePlan:         ohlcv.TradePlan{Rejected: true},
+				Backtest:          professional.BacktestResult{BacktestSafe: true},
+				TechnicalGate:     professional.TechnicalSignalGate{Status: "fail", Actionable: false},
+				Indicators:        ohlcv.IndicatorSnapshot{MACDHistogram: 0.1, ChaikinMoneyFlow20: -0.1},
+				NearestSupport:    &ohlcv.SupportResistanceLevel{Price: 336.5},
+				Liquidity:         professional.LiquidityProfile{AverageValueTraded20TRY: 1_000_000_000},
+				SignalStats:       professional.SignalStats{},
+				Range52W:          PriceRange{},
+			},
+		},
+	})
+
+	joined := strings.Join(report.BuyConditions, " | ")
+	if strings.Contains(joined, "içsel değere göre yeterli güvenlik marjı") {
+		t.Fatalf("buy conditions must not claim safety margin when valuation is suppressed: %s", joined)
+	}
+	if !strings.Contains(joined, "pozitif/güvenilir içsel değer") {
+		t.Fatalf("buy conditions should request valuation evidence instead, got: %s", joined)
+	}
+}
+
 func TestAnalyzeCryptoDoesNotPretendDCFValue(t *testing.T) {
 	report := Analyze(Input{
 		Symbol:       "CHZUSDT",

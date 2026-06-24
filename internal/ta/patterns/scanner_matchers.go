@@ -220,13 +220,23 @@ type patternScanWindow struct {
 	end   int
 }
 
+const (
+	fullExhaustivePatternScanMaxBars = 160
+	maxBoundedPatternScanWindows     = 384
+	boundedPatternRecentEndBars      = 180
+)
+
 func exhaustivePatternScanWindows(total int, rule patternRuleID) []patternScanWindow {
 	if total <= 0 {
 		return nil
 	}
 	sizes := patternScanWindowSizes(total, rule)
 	seen := map[patternScanWindow]struct{}{}
-	windows := make([]patternScanWindow, 0, total*(len(sizes)+1))
+	capacityHint := minInt(total*(len(sizes)+1), maxBoundedPatternScanWindows)
+	if total <= fullExhaustivePatternScanMaxBars {
+		capacityHint = total * (len(sizes) + 1)
+	}
+	windows := make([]patternScanWindow, 0, capacityHint)
 	add := func(start, end int) {
 		if start < 0 || end < start || end >= total {
 			return
@@ -238,14 +248,31 @@ func exhaustivePatternScanWindows(total int, rule patternRuleID) []patternScanWi
 		seen[window] = struct{}{}
 		windows = append(windows, window)
 	}
-	for end := 0; end < total; end++ {
-		add(0, end)
+
+	addWindowsForEnd := func(end int, includeFromStart bool) {
+		if includeFromStart {
+			add(0, end)
+		}
 		available := end + 1
 		for _, size := range sizes {
 			if size <= available {
 				add(end-size+1, end)
 			}
 		}
+	}
+
+	if total > fullExhaustivePatternScanMaxBars {
+		last := total - 1
+		addWindowsForEnd(last, true)
+		recentStart := maxInt(0, total-boundedPatternRecentEndBars)
+		for end := last - 1; end >= recentStart && len(windows) < maxBoundedPatternScanWindows; end-- {
+			addWindowsForEnd(end, false)
+		}
+		return windows
+	}
+
+	for end := 0; end < total; end++ {
+		addWindowsForEnd(end, true)
 	}
 	return windows
 }
@@ -290,9 +317,56 @@ func patternWindowInput(input ScannerInput, window patternScanWindow, rule patte
 	out.Candles = input.Candles[window.start : window.end+1]
 	out.chartSwings = nil
 	if patternRuleNeedsWindowIndicators(rule) {
-		if snapshot, err := indicators.Snapshot(out.Candles); err == nil {
-			out.Indicators = snapshot
-		}
+		out.Indicators = patternWindowIndicatorSnapshot(out.Candles)
+	}
+	return out
+}
+
+func patternWindowIndicatorSnapshot(candles []ohlcv.Candle) ohlcv.IndicatorSnapshot {
+	closes := closesFromCandles(candles)
+	volumes := volumesFromCandles(candles)
+	macdLine, macdSignal, macdHist := indicators.MACD(closes, 12, 26, 9)
+	bollUpper, bollMiddle, bollLower := indicators.BollingerBands(closes, 20, 2)
+	stochK, stochD := indicators.StochasticOscillator(candles, 14, 3)
+	stochRSIK, stochRSID := indicators.StochasticRSI(closes, 14, 14, 3, 3)
+	tenkan, kijun, senkouA, senkouB, chikou, cloudTrend, kumoTwist, tkCross, cloudBreakout := indicators.Ichimoku(candles, 9, 26, 52)
+	return ohlcv.IndicatorSnapshot{
+		SMA20:                      indicators.SMA(closes, 20),
+		SMA50:                      indicators.SMA(closes, 50),
+		SMA100:                     indicators.SMA(closes, 100),
+		SMA200:                     indicators.SMA(closes, 200),
+		EMA20:                      indicators.EMA(closes, 20),
+		EMA50:                      indicators.EMA(closes, 50),
+		RSI14:                      indicators.RSI(closes, 14),
+		ATR14:                      indicators.ATR(candles, 14),
+		MACD:                       macdLine,
+		MACDSignal:                 macdSignal,
+		MACDHistogram:              macdHist,
+		BollingerUpper:             bollUpper,
+		BollingerMiddle:            bollMiddle,
+		BollingerLower:             bollLower,
+		StochRSIK:                  stochRSIK,
+		StochRSID:                  stochRSID,
+		StochasticK:                stochK,
+		StochasticD:                stochD,
+		VolumeSMA20:                indicators.SMA(volumes, 20),
+		IchimokuTenkan:             tenkan,
+		IchimokuKijun:              kijun,
+		IchimokuSenkouA:            senkouA,
+		IchimokuSenkouB:            senkouB,
+		IchimokuChikou:             chikou,
+		IchimokuCloudTrend:         cloudTrend,
+		IchimokuKumoTwist:          kumoTwist,
+		IchimokuTKCross:            tkCross,
+		IchimokuPriceCloudBreakout: cloudBreakout,
+		FibonacciLevels:            indicators.FibonacciLevels(candles),
+	}
+}
+
+func volumesFromCandles(c []ohlcv.Candle) []float64 {
+	out := make([]float64, len(c))
+	for i, candle := range c {
+		out[i] = candle.EffectiveVolume()
 	}
 	return out
 }

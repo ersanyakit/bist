@@ -41,6 +41,7 @@ type Options struct {
 	PeerLimit                  int
 	CommissionBps              float64
 	SlippageBps                float64
+	SkipKAPPDFIngest           bool
 }
 
 type SymbolInput struct {
@@ -702,7 +703,10 @@ func AnalyzeSymbol(input SymbolInput) Report {
 	latest := valuationPeriod(fin, opts, asOf)
 	versionStore, versionStoreOK := data.loadStatementVersionStore(input.Symbol)
 	governance := financialDataGovernance(input.EquitiesDir, fin, latest, asOf, finOK, versionStore, versionStoreOK, opts)
-	kapPDFIngest := data.analyzeKAPPDFIngest(input.Symbol)
+	kapPDFIngest := skippedKAPPDFIngest(input.Symbol)
+	if !opts.SkipKAPPDFIngest {
+		kapPDFIngest = data.analyzeKAPPDFIngest(input.Symbol)
+	}
 	fundamentalBacktest := eventbacktest.RunFundamentalEventsWithOptions(input.DailyCandles, fin.Periods, eventbacktest.FundamentalEventOptions{
 		RequireVerifiedPublishDate: opts.RequireVerifiedPublishDate,
 	})
@@ -1725,6 +1729,14 @@ func AnalyzeTimeframe(input TimeframeInput, opts Options) TimeframeReport {
 		SignalStats:     stats,
 		Technical:       buildTechnicalEvidence(input, backtest, stats, priceAdjustment),
 		PriceAdjustment: priceAdjustment,
+	}
+}
+
+func skippedKAPPDFIngest(symbol string) KAPPDFIngestSummary {
+	return KAPPDFIngestSummary{
+		Symbol:   strings.ToUpper(strings.TrimSpace(symbol)),
+		Summary:  "KAP PDF ingest analiz opsiyonu ile atlandi.",
+		Warnings: []string{"kap_pdf_ingest_skipped_by_option"},
 	}
 }
 
@@ -3335,7 +3347,8 @@ func buildPeerComparison(equitiesDir, symbol string, profile CompanyProfile, pri
 		if ticker == "" || ticker == symbol {
 			continue
 		}
-		name := equityName(filepath.Join(equitiesDir, ticker, "equity.json"))
+		equityPath := filepath.Join(equitiesDir, ticker, "equity.json")
+		name, eqPrice := equitySummary(equityPath)
 		if len(manualPeers) > 0 {
 			if !manualPeers[ticker] {
 				continue
@@ -3343,7 +3356,6 @@ func buildPeerComparison(equitiesDir, symbol string, profile CompanyProfile, pri
 		} else if !sameSector(ticker, name, profile.Sector) {
 			continue
 		}
-		eqPrice := latestPrice(filepath.Join(equitiesDir, ticker, "equity.json"))
 		if eqPrice <= 0 {
 			continue
 		}
@@ -4716,31 +4728,51 @@ func paidCapitalFromFinancials(fin financialFile, p period) float64 {
 	return fieldValue(fin, "2OA", p)
 }
 
-func latestPrice(path string) float64 {
+type equitySummaryFile struct {
+	Name  string `json:"name"`
+	OHLCV struct {
+		Close json.RawMessage `json:"close"`
+	} `json:"ohlcv"`
+}
+
+func equitySummary(path string) (string, float64) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return 0
+		return "", 0
 	}
-	var payload map[string]any
+	var payload equitySummaryFile
 	if json.Unmarshal(raw, &payload) != nil {
+		return "", 0
+	}
+	return payload.Name, rawNumberValue(payload.OHLCV.Close)
+}
+
+func rawNumberValue(raw json.RawMessage) float64 {
+	if len(raw) == 0 {
 		return 0
 	}
-	if o, ok := payload["ohlcv"].(map[string]any); ok {
-		return numberValue(o["close"])
+	var number float64
+	if json.Unmarshal(raw, &number) == nil {
+		return number
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(text), 64)
+		if err == nil {
+			return parsed
+		}
 	}
 	return 0
 }
 
+func latestPrice(path string) float64 {
+	_, close := equitySummary(path)
+	return close
+}
+
 func equityName(path string) string {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	var payload map[string]any
-	if json.Unmarshal(raw, &payload) != nil {
-		return ""
-	}
-	return stringValue(payload["name"])
+	name, _ := equitySummary(path)
+	return name
 }
 
 func loadSectorClassification(equitiesDir string, symbol string) (sectorClassification, bool) {

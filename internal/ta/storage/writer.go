@@ -388,10 +388,13 @@ func sanitizeUnpublishedPointForecast(forecast analysis.NextSessionForecast) ana
 	forecast.PointForecastSuppressionReason = gated.PointForecastSuppressionReason
 	forecast.PublishedPredictedOpen = gated.PublishedPredictedOpen
 	forecast.PublishedPredictedClose = gated.PublishedPredictedClose
+	forecast.Status = gated.Status
+	forecast.Quality = gated.Quality
+	forecast.Confidence = gated.Confidence
+	forecast.ConfidenceLabel = gated.ConfidenceLabel
+	forecast.Warnings = gated.Warnings
+	forecast.DecisionForecast = gated.DecisionForecast
 	if gated.PointForecastPublishable {
-		return forecast
-	}
-	if !gated.ActualAvailable {
 		return forecast
 	}
 	forecast.PredictedOpen = 0
@@ -405,9 +408,24 @@ func sanitizeUnpublishedPointForecast(forecast analysis.NextSessionForecast) ana
 	forecast.PredictedOpenDirection = ""
 	forecast.PredictedCloseDirection = ""
 	forecast.DirectionTolerancePct = 0
+	forecast.ExpectedLow = 0
+	forecast.ExpectedHigh = 0
+	forecast.OpenP10 = 0
+	forecast.OpenP50 = 0
+	forecast.OpenP90 = 0
+	forecast.CloseP10 = 0
+	forecast.CloseP50 = 0
+	forecast.CloseP90 = 0
 	forecast.UpsideProbabilityPct = 0
 	forecast.FlatProbabilityPct = 0
 	forecast.DownsideProbabilityPct = 0
+	forecast.ForecastDistributionSamples = 0
+	forecast.InvalidationLevel = 0
+	forecast.InvalidationReason = ""
+	forecast.RawExpectedLow = 0
+	forecast.RawExpectedHigh = 0
+	forecast.TradableExpectedLow = 0
+	forecast.TradableExpectedHigh = 0
 	forecast.DirectionBias = ""
 	forecast.BiasStrength = ""
 	return forecast
@@ -834,9 +852,6 @@ func shouldLoadKAPRawDataForReport(equitiesDir string, result analysis.SymbolAna
 		return false
 	}
 	kap := result.Professional.KAPPDFIngest
-	if !kap.Computed {
-		return false
-	}
 	if fileExistsLocal(kap.RawDocumentsPath) || fileExistsLocal(kap.ProcessedFilesPath) {
 		return true
 	}
@@ -850,20 +865,37 @@ func shouldLoadKAPRawDataForReport(equitiesDir string, result analysis.SymbolAna
 
 func loadKAPRawDataBundle(equitiesDir string, result analysis.SymbolAnalysis) professional.KAPRawDataBundle {
 	symbol := strings.ToUpper(strings.TrimSpace(result.Symbol))
+	processedRoot := filepath.Join(filepath.Dir(filepath.Clean(equitiesDir)), "processed", strings.ToLower(symbol))
+	kapOutputDir := strings.TrimSpace(result.Professional.KAPPDFIngest.OutputDir)
+	if kapOutputDir == "" {
+		kapOutputDir = processedRoot
+	}
+	rawDocumentsPath := strings.TrimSpace(result.Professional.KAPPDFIngest.RawDocumentsPath)
+	if rawDocumentsPath == "" {
+		rawDocumentsPath = filepath.Join(kapOutputDir, kapingest.RawDocumentsFile)
+	}
+	processedFilesPath := strings.TrimSpace(result.Professional.KAPPDFIngest.ProcessedFilesPath)
+	if processedFilesPath == "" {
+		processedFilesPath = filepath.Join(kapOutputDir, kapingest.ProcessedFilesFile)
+	}
+	errorsPath := strings.TrimSpace(result.Professional.KAPPDFIngest.ErrorsPath)
+	if errorsPath == "" {
+		errorsPath = filepath.Join(kapOutputDir, kapingest.ExtractionErrorsFile)
+	}
 	bundle := professional.KAPRawDataBundle{
 		Computed: true,
 		Symbol:   symbol,
 		SourceFiles: professional.KAPRawDataSourceFiles{
-			RawDocumentsPath:     result.Professional.KAPPDFIngest.RawDocumentsPath,
-			KAPEventsPath:        filepath.Join(result.Professional.KAPPDFIngest.OutputDir, kapingest.KAPEventsFile),
+			RawDocumentsPath:     rawDocumentsPath,
+			KAPEventsPath:        filepath.Join(kapOutputDir, kapingest.KAPEventsFile),
 			AssetInventoryPath:   result.Professional.KAPAssetInventory.InventoryPath,
-			ExtractionErrorsPath: result.Professional.KAPPDFIngest.ErrorsPath,
-			ProcessedFilesPath:   result.Professional.KAPPDFIngest.ProcessedFilesPath,
+			ExtractionErrorsPath: errorsPath,
+			ProcessedFilesPath:   processedFilesPath,
 		},
 	}
 	tickerProcessedDir := filepath.Dir(bundle.SourceFiles.AssetInventoryPath)
 	if strings.TrimSpace(bundle.SourceFiles.AssetInventoryPath) == "" || tickerProcessedDir == "." {
-		tickerProcessedDir = filepath.Join(result.Professional.KAPPDFIngest.OutputDir, "by_ticker", symbol)
+		tickerProcessedDir = filepath.Join(kapOutputDir, "by_ticker", symbol)
 	}
 	if strings.TrimSpace(tickerProcessedDir) != "." && strings.TrimSpace(tickerProcessedDir) != "" {
 		bundle.SourceFiles.DocumentIndexPath = filepath.Join(tickerProcessedDir, kapingest.DocumentIndexFile)
@@ -877,7 +909,7 @@ func loadKAPRawDataBundle(equitiesDir string, result analysis.SymbolAnalysis) pr
 	}
 	rawPath := strings.TrimSpace(bundle.SourceFiles.RawDocumentsPath)
 	if rawPath == "" {
-		rawPath = filepath.Join(filepath.Dir(filepath.Clean(equitiesDir)), "processed", strings.ToLower(symbol), kapingest.RawDocumentsFile)
+		rawPath = filepath.Join(processedRoot, kapingest.RawDocumentsFile)
 	}
 	if rawPath != "" {
 		docs, err := readJSONLFile[kapingest.RawDocument](rawPath, func(doc kapingest.RawDocument) bool {
@@ -1711,11 +1743,16 @@ func retailDecisionSentence(result analysis.SymbolAnalysis) string {
 
 func retailConfidence(result analysis.SymbolAnalysis) float64 {
 	verification := reportConfidenceFor(result).Score
+	retailClassScore := result.DecisionClassification.Classes.RetailDirect.Score
 	if result.InvestorQA.Computed && result.InvestorQA.Confidence > 0 {
-		if verification > 0 {
-			return math.Min(result.InvestorQA.Confidence, verification)
+		confidence := result.InvestorQA.Confidence
+		if result.DecisionClassification.Classes.RetailDirect.Status == "fail" && retailClassScore > 0 {
+			confidence = math.Min(confidence, retailClassScore)
 		}
-		return result.InvestorQA.Confidence
+		if verification > 0 {
+			return math.Min(confidence, verification)
+		}
+		return confidence
 	}
 	if result.InstitutionalValidation.Score > 0 {
 		return result.InstitutionalValidation.Score
@@ -1917,9 +1954,8 @@ func nextSessionForecastLines(result analysis.SymbolAnalysis) []string {
 		"Senaryo durumu: " + nextSessionScenarioUsageText(nsf),
 		"Açılış fiyat senaryosu: " + nextSessionScenarioForecastText(nsf, "open", cur),
 		"Kapanış fiyat senaryosu: " + nextSessionScenarioForecastText(nsf, "close", cur),
-		fmt.Sprintf("Beklenen hareket bandı: %s – %s (ATR14 bazlı günlük beklenen aralık)",
-			retailPrice(nsf.ExpectedLow, cur), retailPrice(nsf.ExpectedHigh, cur)),
-		"Kapanış dağılımı P10/P50/P90: " + nextSessionForecastDistributionText(nsf.CloseP10, nsf.CloseP50, nsf.CloseP90, cur),
+		"Beklenen hareket bandı: " + nextSessionExpectedBandText(nsf, cur),
+		"Kapanış dağılımı P10/P50/P90: " + nextSessionForecastDistributionTextForForecast(nsf, false, cur),
 		"Yön olasılığı: " + nextSessionForecastProbabilityText(nsf),
 		"Invalidasyon seviyesi: " + nextSessionForecastInvalidationText(nsf, cur),
 		"Yön beklentisi: " + nextSessionDirectionDisplayText(nsf),
@@ -2549,24 +2585,24 @@ func turkishNextSessionForecast(forecast analysis.NextSessionForecast) map[strin
 		"ham_kapanis_degisim_yuzde":             nextSessionAuditChangeValue(forecast, forecast.RawPredictedClose),
 		"islem_gorebilir_acilis_degisim_yuzde":  nextSessionPublishedChangeValue(forecast.PublishedPredictedOpen, forecast.LastClose),
 		"islem_gorebilir_kapanis_degisim_yuzde": nextSessionPublishedChangeValue(forecast.PublishedPredictedClose, forecast.LastClose),
-		"beklenen_en_dusuk":                     forecast.ExpectedLow,
-		"beklenen_en_yuksek":                    forecast.ExpectedHigh,
-		"acilis_p10":                            forecast.OpenP10,
-		"acilis_p50":                            forecast.OpenP50,
-		"acilis_p90":                            forecast.OpenP90,
-		"kapanis_p10":                           forecast.CloseP10,
-		"kapanis_p50":                           forecast.CloseP50,
-		"kapanis_p90":                           forecast.CloseP90,
+		"beklenen_en_dusuk":                     nextSessionFutureScenarioNumberValue(forecast, forecast.ExpectedLow),
+		"beklenen_en_yuksek":                    nextSessionFutureScenarioNumberValue(forecast, forecast.ExpectedHigh),
+		"acilis_p10":                            nextSessionFutureScenarioNumberValue(forecast, forecast.OpenP10),
+		"acilis_p50":                            nextSessionFutureScenarioNumberValue(forecast, forecast.OpenP50),
+		"acilis_p90":                            nextSessionFutureScenarioNumberValue(forecast, forecast.OpenP90),
+		"kapanis_p10":                           nextSessionFutureScenarioNumberValue(forecast, forecast.CloseP10),
+		"kapanis_p50":                           nextSessionFutureScenarioNumberValue(forecast, forecast.CloseP50),
+		"kapanis_p90":                           nextSessionFutureScenarioNumberValue(forecast, forecast.CloseP90),
 		"yukari_olasilik_yuzde":                 nextSessionFutureScenarioNumberValue(forecast, forecast.UpsideProbabilityPct),
 		"yatay_olasilik_yuzde":                  nextSessionFutureScenarioNumberValue(forecast, forecast.FlatProbabilityPct),
 		"asagi_olasilik_yuzde":                  nextSessionFutureScenarioNumberValue(forecast, forecast.DownsideProbabilityPct),
-		"dagilim_ornek_sayisi":                  forecast.ForecastDistributionSamples,
-		"invalidasyon_seviyesi":                 forecast.InvalidationLevel,
-		"invalidasyon_nedeni":                   emptyStringAsNil(forecast.InvalidationReason),
-		"ham_beklenen_en_dusuk":                 forecast.RawExpectedLow,
-		"ham_beklenen_en_yuksek":                forecast.RawExpectedHigh,
-		"islem_gorebilir_beklenen_en_dusuk":     forecast.TradableExpectedLow,
-		"islem_gorebilir_beklenen_en_yuksek":    forecast.TradableExpectedHigh,
+		"dagilim_ornek_sayisi":                  nextSessionFutureScenarioNumberValue(forecast, float64(forecast.ForecastDistributionSamples)),
+		"invalidasyon_seviyesi":                 nextSessionFutureScenarioNumberValue(forecast, forecast.InvalidationLevel),
+		"invalidasyon_nedeni":                   nextSessionPublishedTextValue(forecast, forecast.InvalidationReason),
+		"ham_beklenen_en_dusuk":                 nextSessionFutureScenarioNumberValue(forecast, forecast.RawExpectedLow),
+		"ham_beklenen_en_yuksek":                nextSessionFutureScenarioNumberValue(forecast, forecast.RawExpectedHigh),
+		"islem_gorebilir_beklenen_en_dusuk":     nextSessionFutureScenarioNumberValue(forecast, forecast.TradableExpectedLow),
+		"islem_gorebilir_beklenen_en_yuksek":    nextSessionFutureScenarioNumberValue(forecast, forecast.TradableExpectedHigh),
 		"fiyat_adimi":                           forecast.TickSize,
 		"yuvarlama_yontemi":                     forecast.RoundingMethod,
 		"fiyat_adimi_kurali":                    forecast.PriceStepRule,
@@ -2635,10 +2671,16 @@ func nextSessionPublishedChangeValue(price *float64, lastClose float64) any {
 }
 
 func nextSessionScenarioValue(forecast analysis.NextSessionForecast, field string) any {
+	if !nextSessionForwardScenarioPublishable(forecast) {
+		return nil
+	}
 	return positiveFloatAsAny(nextSessionScenarioPrice(forecast, field))
 }
 
 func nextSessionScenarioChangeValue(forecast analysis.NextSessionForecast, field string) any {
+	if !nextSessionForwardScenarioPublishable(forecast) {
+		return nil
+	}
 	price := nextSessionScenarioPrice(forecast, field)
 	if price <= 0 || forecast.LastClose <= 0 {
 		return nil
@@ -2647,7 +2689,7 @@ func nextSessionScenarioChangeValue(forecast analysis.NextSessionForecast, field
 }
 
 func nextSessionScenarioDirectionValue(forecast analysis.NextSessionForecast, value string) any {
-	if forecast.ActualAvailable {
+	if !nextSessionForwardScenarioPublishable(forecast) {
 		return nil
 	}
 	value = strings.TrimSpace(value)
@@ -2670,7 +2712,7 @@ func nextSessionTurkishPointForecastStatus(forecast analysis.NextSessionForecast
 	case forecast.PointForecastPublishable:
 		return "karar_kalitesinde_yayinda"
 	default:
-		return "senaryo_uretildi"
+		return "yayinlanmadi"
 	}
 }
 
@@ -2691,10 +2733,17 @@ func nextSessionTurkishForecastQuality(forecast analysis.NextSessionForecast) st
 }
 
 func nextSessionFutureScenarioNumberValue(forecast analysis.NextSessionForecast, value float64) any {
-	if forecast.ActualAvailable {
+	if !nextSessionForwardScenarioPublishable(forecast) {
 		return nil
 	}
 	return positiveFloatAsAny(value)
+}
+
+func nextSessionPublishedTextValue(forecast analysis.NextSessionForecast, value string) any {
+	if !nextSessionForwardScenarioPublishable(forecast) {
+		return nil
+	}
+	return emptyStringAsNil(value)
 }
 
 func positiveFloatAsAny(value float64) any {

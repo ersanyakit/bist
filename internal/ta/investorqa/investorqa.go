@@ -10,6 +10,7 @@ import (
 	"hissebot/internal/ta/contrarian"
 	"hissebot/internal/ta/ohlcv"
 	"hissebot/internal/ta/professional"
+	tavalue "hissebot/internal/ta/value"
 	"hissebot/pkg/mathutil"
 )
 
@@ -784,12 +785,12 @@ func analyzeScenario(input Input, daily Timeframe) ScenarioReport {
 		out.DownsideTriggers = append(out.DownsideTriggers, "senaryo hedefleri kanıt kapısı geçmediği için üretilmedi")
 	} else {
 		baseScore := 50 + mathutil.Clamp(out.Base.ReturnPct, -30, 30)
-		if input.Professional.ValueInvesting.MarginOfSafety.Computed {
+		if valueInvestingMarginComputed(input.Professional.ValueInvesting) {
 			baseScore += mathutil.Clamp(input.Professional.ValueInvesting.MarginOfSafety.BasePct/2, -15, 20)
 		}
 		out.Score = mathutil.Clamp(baseScore, 0, 100)
 	}
-	if !isMarketOnlyAssetType(input.AssetType) && !input.Professional.ValueInvesting.Computed {
+	if !isMarketOnlyAssetType(input.AssetType) && !valueInvestingIntrinsicUsable(input.Professional.ValueInvesting) {
 		out.Score = math.Min(out.Score, 55)
 		out.DownsideTriggers = append(out.DownsideTriggers, "içsel değer doğrulanmadığı için senaryo işlem tezi sayılmaz")
 	}
@@ -799,7 +800,7 @@ func analyzeScenario(input Input, daily Timeframe) ScenarioReport {
 	if daily.TradePlan.StopLoss > 0 {
 		out.ThesisBreak = append(out.ThesisBreak, fmt.Sprintf("%.2f stop seviyesi altında plan geçersizleşir", daily.TradePlan.StopLoss))
 	}
-	if input.Professional.ValueInvesting.Computed && input.Professional.ValueInvesting.MarginOfSafety.BasePct < 0 {
+	if valueInvestingMarginComputed(input.Professional.ValueInvesting) && input.Professional.ValueInvesting.MarginOfSafety.BasePct < 0 {
 		out.ThesisBreak = append(out.ThesisBreak, "fiyat içsel değerin üstünde kaldıkça değer yatırım tezi zayıf")
 	}
 	if daily.NearestResistance != nil {
@@ -1080,6 +1081,12 @@ func confidence(input Input, report Report, daily Timeframe) float64 {
 	if priceVerificationBlocksAction(input) {
 		score = math.Min(score, 64)
 	}
+	if !valueInvestingMarginComputed(input.Professional.ValueInvesting) {
+		score = math.Min(score, mathutil.Clamp(report.Score, 0, 64))
+	}
+	if !technicalGateAllowsAction(daily) {
+		score = math.Min(score, 64)
+	}
 	return score
 }
 
@@ -1108,12 +1115,12 @@ func decision(input Input, report Report, daily Timeframe) (string, string) {
 		return "BEKLE", "İçsel değer ve güvenlik marjı kanıtı eksik; rapor ön izleme niteliğindedir"
 	case report.Quality.Score < 40:
 		return "RED", "Finansal kalite ve risk profili zayıf"
-	case v.MarginOfSafety.BasePct >= v.MarginOfSafety.RequiredPct && report.Quality.Score >= 60 && report.ModelRisk.Score >= 60:
+	case valueInvestingMarginPass(v) && report.Quality.Score >= 60 && report.ModelRisk.Score >= 60:
 		if technicalGateAllowsAction(daily) {
 			return "AL", "İçsel değer, kalite ve teknik giriş birlikte teyit veriyor"
 		}
 		return "ALIM_ADAYI", "Değer yatırım koşulu var; teknik kanıt kapısı ve giriş teyidi bekleniyor"
-	case v.MarginOfSafety.BasePct >= 0 && report.Quality.Score >= 50:
+	case valueInvestingMarginComputed(v) && v.MarginOfSafety.BasePct >= 0 && report.Quality.Score >= 50:
 		return "TAKIP", "Fiyat içsel değere yakın; güvenlik marjı sınırlı"
 	default:
 		return "BEKLE", "Güvenlik marjı ve teyitler yeterli değil"
@@ -1143,8 +1150,12 @@ func buyConditions(input Input, report Report, daily Timeframe) []string {
 	}
 	if !isMarketOnlyAssetType(input.AssetType) {
 		v := input.Professional.ValueInvesting
-		if !v.MarginOfSafety.Computed || v.MarginOfSafety.BasePct < v.MarginOfSafety.RequiredPct {
-			out = append(out, "içsel değere göre yeterli güvenlik marjı")
+		if !valueInvestingMarginPass(v) {
+			if valueInvestingMarginComputed(v) {
+				out = append(out, fmt.Sprintf("güvenlik marjının gereken %.1f%% eşiğini geçmesi", v.MarginOfSafety.RequiredPct))
+			} else {
+				out = append(out, "pozitif/güvenilir içsel değer ve gereken güvenlik marjı kanıtının tamamlanması")
+			}
 		}
 		if report.Quality.Score < 60 {
 			out = append(out, "finansal kalite skorunun 60 üstüne çıkması")
@@ -1367,7 +1378,7 @@ func actionScore(input Input, report Report, daily Timeframe) float64 {
 	}
 	v := input.Professional.ValueInvesting
 	marginScore := 0.0
-	if v.MarginOfSafety.Computed && v.MarginOfSafety.RequiredPct > 0 {
+	if valueInvestingMarginComputed(v) {
 		marginScore = mathutil.Clamp(v.MarginOfSafety.BasePct/v.MarginOfSafety.RequiredPct*100, 0, 100)
 	}
 	return weighted([]weightedScore{
@@ -1390,7 +1401,7 @@ func sellRiskScore(input Input, report Report, daily Timeframe) float64 {
 	})
 	if !isMarketOnlyAssetType(input.AssetType) {
 		v := input.Professional.ValueInvesting
-		if v.MarginOfSafety.Computed && v.MarginOfSafety.BasePct < 0 {
+		if valueInvestingMarginComputed(v) && v.MarginOfSafety.BasePct < 0 {
 			risk = mathutil.Clamp(risk+15, 0, 100)
 		}
 	}
@@ -1423,7 +1434,7 @@ func holdTrigger(input Input, report Report, daily Timeframe) string {
 	}
 	if !isMarketOnlyAssetType(input.AssetType) {
 		v := input.Professional.ValueInvesting
-		if v.MarginOfSafety.Computed {
+		if valueInvestingMarginComputed(v) {
 			parts = append(parts, fmt.Sprintf("güvenlik marjı %.1f%%; gereken %.1f%%", v.MarginOfSafety.BasePct, v.MarginOfSafety.RequiredPct))
 		}
 	}
@@ -1440,7 +1451,7 @@ func sellTrigger(input Input, report Report, daily Timeframe) string {
 	}
 	if !isMarketOnlyAssetType(input.AssetType) {
 		v := input.Professional.ValueInvesting
-		if v.MarginOfSafety.Computed && v.MarginOfSafety.BasePct < 0 {
+		if valueInvestingMarginComputed(v) && v.MarginOfSafety.BasePct < 0 {
 			parts = append(parts, fmt.Sprintf("fiyat baz içsel değerin üstünde; güvenlik marjı %.1f%%", v.MarginOfSafety.BasePct))
 		}
 	}
@@ -1468,7 +1479,7 @@ func sellInvalidation(input Input, report Report, daily Timeframe) string {
 	}
 	if !isMarketOnlyAssetType(input.AssetType) {
 		v := input.Professional.ValueInvesting
-		if v.MarginOfSafety.Computed {
+		if valueInvestingMarginComputed(v) {
 			parts = append(parts, fmt.Sprintf("güvenlik marjının gereken %.1f%% eşiğini geçmesi", v.MarginOfSafety.RequiredPct))
 		}
 	}
@@ -1502,8 +1513,10 @@ func actionEvidence(input Input, report Report, daily Timeframe) []string {
 	}
 	if !isMarketOnlyAssetType(input.AssetType) {
 		v := input.Professional.ValueInvesting
-		if v.IntrinsicValue.Computed || v.MarginOfSafety.Computed {
+		if valueInvestingMarginComputed(v) {
 			out = append(out, fmt.Sprintf("içsel değer baz %.2f, fiyat %.2f, güvenlik marjı %.1f%% / gereken %.1f%%", v.IntrinsicValue.Base, v.CurrentPrice, v.MarginOfSafety.BasePct, v.MarginOfSafety.RequiredPct))
+		} else if !valueInvestingIntrinsicUsable(v) {
+			out = append(out, "içsel değer/güvenlik marjı güvenilir hesaplanamadı; değerleme kanıtı tamamlanmadan karar üretilemez")
 		}
 		out = append(out, fmt.Sprintf("finansal kalite %.0f/100, nakit dönüşümü %.0f/100, bilanço %.0f/100", report.Quality.Score, report.Quality.CashConversion, report.Quality.BalanceSheet))
 	}
@@ -1546,7 +1559,7 @@ func sellEvidence(input Input, report Report, daily Timeframe) []string {
 	out = append(out, limitStrings(report.ExitConditions, 3)...)
 	if !isMarketOnlyAssetType(input.AssetType) {
 		v := input.Professional.ValueInvesting
-		if v.MarginOfSafety.Computed {
+		if valueInvestingMarginComputed(v) {
 			out = append(out, fmt.Sprintf("güvenlik marjı %.1f%%; gereken %.1f%%", v.MarginOfSafety.BasePct, v.MarginOfSafety.RequiredPct))
 		}
 	}
@@ -1568,9 +1581,9 @@ func buyActionBlockers(input Input, report Report, daily Timeframe) []string {
 		}
 	} else {
 		v := input.Professional.ValueInvesting
-		if !v.Computed {
+		if !valueInvestingIntrinsicUsable(v) {
 			out = append(out, "içsel değer/güvenlik marjı üretilemedi")
-		} else if !v.MarginOfSafety.Computed || v.MarginOfSafety.BasePct < v.MarginOfSafety.RequiredPct {
+		} else if !valueInvestingMarginPass(v) {
 			out = append(out, "gereken güvenlik marjı yok")
 		}
 		if report.Quality.Score < 60 {
@@ -1701,7 +1714,7 @@ func sanitizeActionSignal(signal ActionSignal) ActionSignal {
 }
 
 func topOpportunity(input Input, report Report) string {
-	if !isMarketOnlyAssetType(input.AssetType) && input.Professional.ValueInvesting.Computed && input.Professional.ValueInvesting.MarginOfSafety.BasePct > 0 {
+	if !isMarketOnlyAssetType(input.AssetType) && valueInvestingMarginComputed(input.Professional.ValueInvesting) && input.Professional.ValueInvesting.MarginOfSafety.BasePct > 0 {
 		return fmt.Sprintf("içsel değere göre %.1f%% güvenlik marjı", input.Professional.ValueInvesting.MarginOfSafety.BasePct)
 	}
 	if len(report.Quality.Strengths) > 0 {
@@ -1889,7 +1902,7 @@ func valueInvestingGateView(input Input, report Report) PersonaView {
 		}
 	}
 	marginScore := 0.0
-	if v.MarginOfSafety.Computed && v.MarginOfSafety.RequiredPct > 0 {
+	if valueInvestingMarginComputed(v) {
 		marginScore = mathutil.Clamp(v.MarginOfSafety.BasePct/v.MarginOfSafety.RequiredPct*100, 0, 120)
 	}
 	ownerEarningsScore := v.OwnerEarnings.Score
@@ -1899,7 +1912,7 @@ func valueInvestingGateView(input Input, report Report) PersonaView {
 		normalizedFCFScore = 60
 	}
 	view.Score = weighted([]weightedScore{
-		{boolScore(v.IntrinsicValue.Computed && v.MarginOfSafety.Computed), 0.18},
+		{boolScore(valueInvestingMarginComputed(v)), 0.18},
 		{marginScore, 0.20},
 		{ownerEarningsScore, 0.16},
 		{normalizedFCFScore, 0.14},
@@ -1926,12 +1939,12 @@ func valueInvestingGateView(input Input, report Report) PersonaView {
 		view.Evidence[3] = EvidenceItem{"Normalize FCF", "Bankada klasik FCF ana girdi değildir; NIM, NPL, LCR, kredi/mevduat ve fonlama maliyeti bağlanmalıdır.", "not_applicable", normalizedFCFScore}
 		view.Evidence[5] = EvidenceItem{"Sermaye hareketleri", fmt.Sprintf("5Y ödenmiş sermaye değişimi %.1f%% | ekonomik sulanma sayılmadı; bedelli/bedelsiz/split sınıflaması gerekir | skor %.0f/100", v.CapitalAllocation.Dilution5YPct, v.CapitalAllocation.Score), status(v.CapitalAllocation.Score), v.CapitalAllocation.Score}
 	}
-	if v.IntrinsicValue.Computed && v.MarginOfSafety.Computed {
+	if valueInvestingMarginComputed(v) {
 		view.Passes = append(view.Passes, "içsel değer ve güvenlik marjı hesaplanmış")
 	} else {
 		view.Blockers = append(view.Blockers, "içsel değer veya güvenlik marjı güvenilir hesaplanamıyor")
 	}
-	if v.MarginOfSafety.Computed && v.MarginOfSafety.BasePct >= v.MarginOfSafety.RequiredPct {
+	if valueInvestingMarginPass(v) {
 		view.Passes = append(view.Passes, fmt.Sprintf("güvenlik marjı gereken %.1f%% eşiğini geçiyor", v.MarginOfSafety.RequiredPct))
 	} else {
 		view.Blockers = append(view.Blockers, "gereken güvenlik marjı yok")
@@ -2711,7 +2724,7 @@ func applyValueInvestingReportQuality(input Input, report Report, view PersonaVi
 			reasons = append(reasons, "Değer yatırım kanıt seti tam: içsel değer, güvenlik marjı, owner earnings, FCF, moat ve sermaye tahsisi raporda var.")
 		}
 	}
-	if !v.IntrinsicValue.Computed || !v.MarginOfSafety.Computed {
+	if !valueInvestingMarginComputed(v) {
 		reasons = append(reasons, "İçsel değer/güvenlik marjı hesaplanamıyorsa bu yatırım başarısı değil, doğru ret gerekçesi olarak raporlanıyor.")
 	}
 	if len(view.RequiredActions) > 0 {
@@ -3048,7 +3061,7 @@ func intrinsicEvidence(input Input) string {
 
 func marginEvidence(input Input) string {
 	v := input.Professional.ValueInvesting
-	if !v.MarginOfSafety.Computed {
+	if !valueInvestingMarginComputed(v) {
 		return fmt.Sprintf("hesaplanamadı | gereken %.1f%%", v.MarginOfSafety.RequiredPct)
 	}
 	return fmt.Sprintf("%.1f%% | gereken %.1f%%", v.MarginOfSafety.BasePct, v.MarginOfSafety.RequiredPct)
@@ -3056,7 +3069,7 @@ func marginEvidence(input Input) string {
 
 func valueInvestingGateRequiredMarginAction(input Input) string {
 	v := input.Professional.ValueInvesting
-	if v.IntrinsicValue.Computed && v.MarginOfSafety.RequiredPct > 0 {
+	if valueInvestingIntrinsicUsable(v) && v.MarginOfSafety.RequiredPct > 0 {
 		maxBuyPrice := v.IntrinsicValue.Base * (1 - v.MarginOfSafety.RequiredPct/100)
 		return fmt.Sprintf("Değer yatırım alımı için fiyat %.2f %s veya altına inmeli ya da baz içsel değer %.2f %s üstüne yükselip %.1f%% güvenlik marjı oluşmalı", maxBuyPrice, input.Currency, v.CurrentPrice/(1-v.MarginOfSafety.RequiredPct/100), input.Currency, v.MarginOfSafety.RequiredPct)
 	}
@@ -3232,8 +3245,10 @@ func questions(input Input, report Report, daily Timeframe) []QuestionAnswer {
 		add("Son kapanış karar ve otomatik emir için doğrulandı mı?", answer, status, conf)
 	}
 	valueConfidence := valueFAQConfidence(input, report)
-	if v.Computed {
+	if valueInvestingMarginComputed(v) {
 		add("Bugünkü fiyat gerçek değere göre ucuz mu?", fmt.Sprintf("Baz içsel değer %.2f %s, fiyat %.2f %s, güvenlik marjı %.1f%%.", v.IntrinsicValue.Base, input.Currency, v.CurrentPrice, input.Currency, v.MarginOfSafety.BasePct), statusForMargin(v.MarginOfSafety.BasePct, v.MarginOfSafety.RequiredPct), valueConfidence)
+	} else if valueInvestingIntrinsicUsable(v) {
+		add("Bugünkü fiyat gerçek değere göre ucuz mu?", fmt.Sprintf("Baz içsel değer %.2f %s hesaplandı; güvenlik marjı kanıtı tamamlanmadığı için ucuz denemez.", v.IntrinsicValue.Base, input.Currency), "fail", valueConfidence)
 	} else {
 		add("Bugünkü fiyat gerçek değere göre ucuz mu?", "Pozitif/güvenilir içsel değer üretilemedi; ucuz denemez.", "fail", valueConfidence)
 	}
@@ -4028,7 +4043,7 @@ func valueConfidence(value float64) float64 {
 
 func valueFAQConfidence(input Input, report Report) float64 {
 	v := input.Professional.ValueInvesting
-	if !v.Computed || !v.IntrinsicValue.Computed || !v.MarginOfSafety.Computed {
+	if !valueInvestingMarginComputed(v) {
 		return 25
 	}
 	if strings.EqualFold(input.Professional.EvidencePolicy.Status, "blocked") || !input.Professional.EvidencePolicy.ValuationTargetsAllowed {
@@ -4045,7 +4060,7 @@ func marginAnswer(input Input) string {
 	if isMarketOnlyAssetType(input.AssetType) {
 		return marketAssetLabel(input.AssetType) + " için bu rapor güvenlik marjını geleneksel finansal tablo temelli içsel değer modeliyle hesaplamaz."
 	}
-	if !v.MarginOfSafety.Computed {
+	if !valueInvestingMarginComputed(v) {
 		return "Güvenlik marjı hesaplanamadı."
 	}
 	if v.MarginOfSafety.BasePct >= v.MarginOfSafety.RequiredPct {
@@ -4059,10 +4074,22 @@ func marginStatus(input Input) string {
 	if isMarketOnlyAssetType(input.AssetType) {
 		return "not_applicable"
 	}
-	if !v.MarginOfSafety.Computed {
+	if !valueInvestingMarginComputed(v) {
 		return "fail"
 	}
 	return statusForMargin(v.MarginOfSafety.BasePct, v.MarginOfSafety.RequiredPct)
+}
+
+func valueInvestingIntrinsicUsable(v tavalue.Report) bool {
+	return v.Computed && v.IntrinsicValue.Computed && v.IntrinsicValue.Base > 0
+}
+
+func valueInvestingMarginComputed(v tavalue.Report) bool {
+	return valueInvestingIntrinsicUsable(v) && v.MarginOfSafety.Computed && v.MarginOfSafety.RequiredPct > 0
+}
+
+func valueInvestingMarginPass(v tavalue.Report) bool {
+	return valueInvestingMarginComputed(v) && v.MarginOfSafety.BasePct >= v.MarginOfSafety.RequiredPct
 }
 
 func statusForMargin(margin, required float64) string {

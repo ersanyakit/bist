@@ -100,7 +100,7 @@ func runReportServer(ctx context.Context, cfg appconfig.Config, store *corestora
 	}
 	fs := flag.NewFlagSet("serve reports", flag.ExitOnError)
 	fs.StringVar(&opts.Addr, "addr", opts.Addr, "HTTP dinleme adresi")
-	fs.StringVar(&opts.Provider, "provider", opts.Provider, "varsayılan veri kaynağı: tradingview, csv veya mock")
+	fs.StringVar(&opts.Provider, "provider", opts.Provider, "varsayılan veri kaynağı: tradingview, bistdb, csv veya mock")
 	fs.StringVar(&opts.Mode, "mode", opts.Mode, "varsayılan analiz modu: research veya production")
 	fs.StringVar(&opts.Timeframes, "timeframes", opts.Timeframes, "varsayılan zaman dilimleri")
 	fs.IntVar(&opts.Limit, "limit", opts.Limit, "timeframe başına mum limiti")
@@ -634,6 +634,7 @@ func (s *reportServer) generate(ctx context.Context, req reportRequest) (reportR
 		PortfolioValue:           cfg.Portfolio,
 		RiskPerTradePct:          cfg.RiskPct,
 		PeerLimit:                cfg.PeerLimit,
+		SkipKAPPDFIngest:         envFlag("HISSEBOT_SKIP_KAP_PDF_INGEST"),
 	})
 	result, err := engine.AnalyzeSymbol(ctx, analysis.SymbolRequest{Symbol: req.Symbol})
 	if err != nil {

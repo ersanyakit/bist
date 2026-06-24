@@ -384,9 +384,9 @@ func writeNextSessionForecastHTML(b *strings.Builder, result analysis.SymbolAnal
 	writeHTMLRow(b, "Kapanış fiyat senaryosu", nextSessionScenarioForecastText(forecast, "close", result.Currency))
 	writeHTMLRow(b, "Beklenen açılış yönü", nextSessionForecastDirectionText(forecast, forecast.PredictedOpenDirection, forecast.OpenChangePct))
 	writeHTMLRow(b, "Beklenen kapanış yönü", nextSessionForecastDirectionText(forecast, forecast.PredictedCloseDirection, forecast.CloseChangePct))
-	writeHTMLRow(b, "Beklenen gün içi bant", fmt.Sprintf("%s – %s", reportPrice(forecast.ExpectedLow, result.Currency), reportPrice(forecast.ExpectedHigh, result.Currency)))
-	writeHTMLRow(b, "Açılış dağılımı P10 / P50 / P90", nextSessionForecastDistributionText(forecast.OpenP10, forecast.OpenP50, forecast.OpenP90, result.Currency))
-	writeHTMLRow(b, "Kapanış dağılımı P10 / P50 / P90", nextSessionForecastDistributionText(forecast.CloseP10, forecast.CloseP50, forecast.CloseP90, result.Currency))
+	writeHTMLRow(b, "Beklenen gün içi bant", nextSessionExpectedBandText(forecast, result.Currency))
+	writeHTMLRow(b, "Açılış dağılımı P10 / P50 / P90", nextSessionForecastDistributionTextForForecast(forecast, true, result.Currency))
+	writeHTMLRow(b, "Kapanış dağılımı P10 / P50 / P90", nextSessionForecastDistributionTextForForecast(forecast, false, result.Currency))
 	writeHTMLRow(b, "Yön olasılığı", nextSessionForecastProbabilityText(forecast))
 	writeHTMLRow(b, "Invalidasyon seviyesi", nextSessionForecastInvalidationText(forecast, result.Currency))
 	if forecast.ActualAvailable && forecast.RawExpectedLow > 0 && forecast.RawExpectedHigh > 0 && (forecast.RawExpectedLow != forecast.ExpectedLow || forecast.RawExpectedHigh != forecast.ExpectedHigh) {
@@ -464,6 +464,9 @@ func nextSessionDirectionDisplayText(forecast analysis.NextSessionForecast) stri
 	if forecast.ActualAvailable {
 		return fmt.Sprintf("Resmi: %s / %s", nextSessionActualDirectionText(forecast.ActualOpen, forecast.LastClose), nextSessionActualDirectionText(forecast.ActualClose, forecast.LastClose))
 	}
+	if !nextSessionForwardScenarioPublishable(forecast) {
+		return nextSessionDirectionSuppressionText(forecast)
+	}
 	direction := strings.TrimSpace(forecast.DirectionBias)
 	if direction == "" {
 		direction = inferredNextSessionDirection(forecast)
@@ -480,6 +483,9 @@ func nextSessionCloseDirectionCardText(forecast analysis.NextSessionForecast) st
 	if forecast.ActualAvailable {
 		return "Resmi: " + nextSessionActualDirectionText(forecast.ActualClose, forecast.LastClose)
 	}
+	if !nextSessionForwardScenarioPublishable(forecast) {
+		return nextSessionDirectionSuppressionText(forecast)
+	}
 	direction := strings.TrimSpace(forecast.PredictedCloseDirection)
 	if direction == "" {
 		direction = inferredNextSessionDirection(forecast)
@@ -495,6 +501,9 @@ func nextSessionForecastDirectionText(forecast analysis.NextSessionForecast, dir
 	if forecast.ActualAvailable {
 		return fmt.Sprintf("Resmi gerçekleşen: %s", nextSessionActualDirectionText(forecast.ActualClose, forecast.LastClose))
 	}
+	if !nextSessionForwardScenarioPublishable(forecast) {
+		return nextSessionDirectionSuppressionText(forecast)
+	}
 	direction = strings.TrimSpace(direction)
 	if direction == "" {
 		direction = inferredNextSessionDirection(forecast)
@@ -506,12 +515,26 @@ func nextSessionDirectionPublishable(forecast analysis.NextSessionForecast) bool
 	return forecast.Computed && forecast.PointForecastPublishable
 }
 
+func nextSessionForwardScenarioPublishable(forecast analysis.NextSessionForecast) bool {
+	forecast = analysis.ApplyNextSessionForecastPublishState(forecast)
+	return forecast.Computed && !forecast.ActualAvailable && forecast.PointForecastPublishable
+}
+
 func nextSessionDirectionSuppressionText(forecast analysis.NextSessionForecast) string {
 	reason := strings.TrimSpace(forecast.PointForecastSuppressionReason)
 	if reason == "" {
 		reason = "forecast_not_publishable"
 	}
 	return "Yön yayınlanmadı: " + reportLabel(reason)
+}
+
+func nextSessionForwardScenarioSuppressionText(forecast analysis.NextSessionForecast) string {
+	forecast = analysis.ApplyNextSessionForecastPublishState(forecast)
+	reason := strings.TrimSpace(forecast.PointForecastSuppressionReason)
+	if reason == "" {
+		reason = "forecast_not_publishable"
+	}
+	return "Yayınlanmadı: " + reportLabel(reason)
 }
 
 func nextSessionScenarioQualifier(forecast analysis.NextSessionForecast, text string) string {
@@ -576,6 +599,7 @@ func nextSessionPublishedForecastCardText(price *float64, currency string) strin
 }
 
 func nextSessionScenarioForecastCardText(forecast analysis.NextSessionForecast, field, currency string) string {
+	forecast = analysis.ApplyNextSessionForecastPublishState(forecast)
 	if forecast.ActualAvailable {
 		switch strings.ToLower(strings.TrimSpace(field)) {
 		case "open":
@@ -583,6 +607,9 @@ func nextSessionScenarioForecastCardText(forecast analysis.NextSessionForecast, 
 		case "close":
 			return "Resmi: " + reportPrice(forecast.ActualClose, currency)
 		}
+	}
+	if !nextSessionForwardScenarioPublishable(forecast) {
+		return nextSessionForwardScenarioSuppressionText(forecast)
 	}
 	price := nextSessionScenarioPrice(forecast, field)
 	if price <= 0 {
@@ -596,6 +623,7 @@ func nextSessionScenarioForecastCardText(forecast analysis.NextSessionForecast, 
 }
 
 func nextSessionScenarioForecastText(forecast analysis.NextSessionForecast, field, currency string) string {
+	forecast = analysis.ApplyNextSessionForecastPublishState(forecast)
 	if forecast.ActualAvailable {
 		switch strings.ToLower(strings.TrimSpace(field)) {
 		case "open":
@@ -603,6 +631,9 @@ func nextSessionScenarioForecastText(forecast analysis.NextSessionForecast, fiel
 		case "close":
 			return "Resmi gerçekleşen: " + reportPrice(forecast.ActualClose, currency)
 		}
+	}
+	if !nextSessionForwardScenarioPublishable(forecast) {
+		return nextSessionForwardScenarioSuppressionText(forecast)
 	}
 	price := nextSessionScenarioPrice(forecast, field)
 	if price <= 0 {
@@ -616,7 +647,11 @@ func nextSessionScenarioForecastText(forecast analysis.NextSessionForecast, fiel
 }
 
 func nextSessionScenarioPrice(forecast analysis.NextSessionForecast, field string) float64 {
+	forecast = analysis.ApplyNextSessionForecastPublishState(forecast)
 	if forecast.ActualAvailable {
+		return 0
+	}
+	if !forecast.PointForecastPublishable {
 		return 0
 	}
 	switch strings.ToLower(strings.TrimSpace(field)) {
@@ -654,6 +689,28 @@ func nextSessionPublishedForecastText(price *float64, lastClose float64, currenc
 	return forecastPriceWithChangeText(*price, lastClose, currency, "yayınlanabilir nokta tahmin")
 }
 
+func nextSessionExpectedBandText(forecast analysis.NextSessionForecast, currency string) string {
+	forecast = analysis.ApplyNextSessionForecastPublishState(forecast)
+	if !nextSessionForwardScenarioPublishable(forecast) {
+		return nextSessionForwardScenarioSuppressionText(forecast)
+	}
+	if forecast.ExpectedLow <= 0 || forecast.ExpectedHigh <= 0 {
+		return "Beklenen bant üretilemedi"
+	}
+	return fmt.Sprintf("%s – %s", reportPrice(forecast.ExpectedLow, currency), reportPrice(forecast.ExpectedHigh, currency))
+}
+
+func nextSessionForecastDistributionTextForForecast(forecast analysis.NextSessionForecast, openDistribution bool, currency string) string {
+	forecast = analysis.ApplyNextSessionForecastPublishState(forecast)
+	if !nextSessionForwardScenarioPublishable(forecast) {
+		return nextSessionForwardScenarioSuppressionText(forecast)
+	}
+	if openDistribution {
+		return nextSessionForecastDistributionText(forecast.OpenP10, forecast.OpenP50, forecast.OpenP90, currency)
+	}
+	return nextSessionForecastDistributionText(forecast.CloseP10, forecast.CloseP50, forecast.CloseP90, currency)
+}
+
 func nextSessionForecastDistributionText(p10, p50, p90 float64, currency string) string {
 	if p10 <= 0 || p50 <= 0 || p90 <= 0 {
 		return "Dağılım üretilemedi; beklenen bant senaryosu kullanılmalı"
@@ -663,6 +720,9 @@ func nextSessionForecastDistributionText(p10, p50, p90 float64, currency string)
 
 func nextSessionForecastProbabilityText(forecast analysis.NextSessionForecast) string {
 	forecast = analysis.ApplyNextSessionForecastPublishState(forecast)
+	if !nextSessionForwardScenarioPublishable(forecast) {
+		return "Olasılık dağılımı yayınlanmadı: " + strings.TrimPrefix(nextSessionForwardScenarioSuppressionText(forecast), "Yayınlanmadı: ")
+	}
 	if forecast.UpsideProbabilityPct == 0 && forecast.FlatProbabilityPct == 0 && forecast.DownsideProbabilityPct == 0 {
 		return "Olasılık dağılımı üretilemedi"
 	}
@@ -679,6 +739,10 @@ func nextSessionForecastProbabilityText(forecast analysis.NextSessionForecast) s
 }
 
 func nextSessionForecastInvalidationText(forecast analysis.NextSessionForecast, currency string) string {
+	forecast = analysis.ApplyNextSessionForecastPublishState(forecast)
+	if !nextSessionForwardScenarioPublishable(forecast) {
+		return nextSessionForwardScenarioSuppressionText(forecast)
+	}
 	if forecast.InvalidationLevel <= 0 {
 		return "Net invalidasyon seviyesi üretilemedi; işlem planındaki stop seviyesi esas alınmalı"
 	}
@@ -715,7 +779,7 @@ func nextSessionScenarioUsageText(forecast analysis.NextSessionForecast) string 
 	if forecast.PointForecastPublishable {
 		return "Fiyat/yön senaryosu karar kalitesi kapısından geçti"
 	}
-	return "Fiyat/yön senaryosu üretildi; teknik kapı zayıf olduğu için karar/emir girdisi değil"
+	return "Fiyat/yön senaryosu yayınlanmadı: " + reportLabel(forecast.PointForecastSuppressionReason)
 }
 
 func nextSessionDecisionOutcomeText(forecast analysis.NextSessionForecast) string {
@@ -735,7 +799,7 @@ func nextSessionDecisionOutcomeText(forecast analysis.NextSessionForecast) strin
 	if forecast.PointForecastPublishable {
 		return "Karar/emir kapısı açık: forecast karar kalitesi eşiğini geçti"
 	}
-	return "Karar/emir kapısı kapalı: forecast yalnız senaryo izlemesi içindir"
+	return "Karar/emir kapısı kapalı: forecast fiyat/yön sayıları yayınlanmadı"
 }
 
 func nextSessionForecastQualityText(forecast analysis.NextSessionForecast) string {
@@ -5590,24 +5654,28 @@ func reportLabel(value string) string {
 		return "Son backtest yön uyumu %55 eşiğinin altında (" + strings.TrimPrefix(lower, "backtest_direction_hit_below_55pct:") + "%)"
 	case strings.HasPrefix(lower, "backtest_close_mae_above_1_25pct:"):
 		return "Kapanış MAE %1.25 eşiğinin üstünde (" + strings.TrimPrefix(lower, "backtest_close_mae_above_1_25pct:") + "%)"
+	case strings.HasPrefix(lower, "backtest_close_mape_above_2pct:"):
+		return "Kapanış MAPE %2 eşiğinin üstünde (" + strings.TrimPrefix(lower, "backtest_close_mape_above_2pct:") + "%); fiyat/yön sayıları yayınlanmadı"
 	case lower == "backtest_close_mae_missing":
 		return "Backtest kapanış MAE metriği yok; nokta fiyat yayınlanmadı"
 	case strings.HasPrefix(lower, "forecast_confidence_below_55:"):
 		return "Forecast güveni %55 altında (" + strings.TrimPrefix(lower, "forecast_confidence_below_55:") + "/100)"
 	}
 	switch lower {
+	case "forecast_not_publishable":
+		return "Forecast yayınlama kapısı kapalı"
 	case "forecast_model_validation_failed_not_decision_grade":
-		return "Model geçmiş doğrulaması zayıf; senaryo izleme düzeyinde"
+		return "Model geçmiş doğrulaması zayıf; fiyat/yön sayıları yayınlanmadı"
 	case "not_decision_grade":
-		return "Senaryo kalitesi izleme düzeyinde"
+		return "Karar kalitesi değil; fiyat/yön sayıları yayınlanmadı"
 	case "model_validation_failed":
 		return "Geçmiş doğrulama zayıf"
 	case "technical_decision_context_failed":
 		return "Teknik karar bağlamı zayıf"
 	case "forecast_quality_provisional":
-		return "Forecast kalitesi provisional; nokta fiyat yerine senaryo bandı yayınlandı"
+		return "Forecast kalitesi provisional; nokta fiyat yayınlanmadı"
 	case "forecast_not_decision_grade":
-		return "Senaryo üretildi; karar/emir girdisi değil"
+		return "Karar kalitesi değil; fiyat/yön sayıları yayınlanmadı"
 	case "technical_decision_gate_not_passed":
 		return "Teknik karar kapısı geçmedi"
 	case "official_actual_available":
@@ -6329,6 +6397,7 @@ func joinReportLabels(values []string) string {
 func reportText(value string) string {
 	value = redactInternalReportText(value)
 	replacements := []string{
+		"kap_pdf_ingest_missing", "kap_pdf_ingest_missing",
 		"Trading edge", "İstatistiksel işlem avantajı",
 		"trading edge", "istatistiksel işlem avantajı",
 		"Walk-forward backtest", "İleri yürütmeli geçmiş test",
@@ -7773,9 +7842,9 @@ func nextSessionForecastPDFRows(result analysis.SymbolAnalysis) [][]string {
 		{"Karar sonucu", nextSessionDecisionOutcomeText(forecast)},
 		{"Açılış fiyat senaryosu", nextSessionScenarioForecastText(forecast, "open", result.Currency)},
 		{"Kapanış fiyat senaryosu", nextSessionScenarioForecastText(forecast, "close", result.Currency)},
-		{"Beklenen bant", fmt.Sprintf("%s - %s", reportPrice(forecast.ExpectedLow, result.Currency), reportPrice(forecast.ExpectedHigh, result.Currency))},
-		{"Açılış dağılımı P10 / P50 / P90", nextSessionForecastDistributionText(forecast.OpenP10, forecast.OpenP50, forecast.OpenP90, result.Currency)},
-		{"Kapanış dağılımı P10 / P50 / P90", nextSessionForecastDistributionText(forecast.CloseP10, forecast.CloseP50, forecast.CloseP90, result.Currency)},
+		{"Beklenen bant", nextSessionExpectedBandText(forecast, result.Currency)},
+		{"Açılış dağılımı P10 / P50 / P90", nextSessionForecastDistributionTextForForecast(forecast, true, result.Currency)},
+		{"Kapanış dağılımı P10 / P50 / P90", nextSessionForecastDistributionTextForForecast(forecast, false, result.Currency)},
 		{"Yön olasılığı", nextSessionForecastProbabilityText(forecast)},
 		{"Invalidasyon seviyesi", nextSessionForecastInvalidationText(forecast, result.Currency)},
 		{"Yön / güç", nextSessionDirectionDisplayText(forecast)},
@@ -8307,6 +8376,9 @@ func oneLookUpsideLines(result analysis.SymbolAnalysis) []string {
 	}
 	if len(result.InvestorQA.BuyConditions) > 0 {
 		for _, condition := range result.InvestorQA.BuyConditions {
+			if oneLookValueEvidenceCondition(result, condition) && !reportValueInvestingMarginPass(result) {
+				continue
+			}
 			add(retailText(condition))
 		}
 	}
@@ -8340,6 +8412,16 @@ func oneLookScenarioLineKeys(direction string, line string) []string {
 		keys = append(keys, direction+":macd_positive")
 	}
 	return keys
+}
+
+func oneLookValueEvidenceCondition(result analysis.SymbolAnalysis, line string) bool {
+	if isCommodityResult(result) || isCryptoResult(result) {
+		return false
+	}
+	normalized := normalizeFinancialText(line)
+	return strings.Contains(normalized, "icsel deger") ||
+		strings.Contains(normalized, "guvenlik marji") ||
+		strings.Contains(normalized, "guvenilir deger")
 }
 
 func firstPriceTokenKey(line string) string {
@@ -8392,6 +8474,9 @@ func oneLookDataLines(result analysis.SymbolAnalysis) []string {
 	if result.PriceQuality != nil && !result.PriceQuality.ReadyForDecision {
 		lines = append(lines, "Güncel karar fiyatı henüz kaynaklarla mutabık değil.")
 	}
+	if !isCommodityResult(result) && !isCryptoResult(result) && !reportValueInvestingMarginComputed(result) {
+		lines = append(lines, "Pozitif/güvenilir içsel değer ve güvenlik marjı kanıtı tamamlanmalı.")
+	}
 	for _, item := range decisionSupportMissingInputs(result) {
 		lines = append(lines, item)
 		if len(lines) >= 3 {
@@ -8408,6 +8493,21 @@ func oneLookDataLines(result analysis.SymbolAnalysis) []string {
 		lines = append(lines, "Karar için kullanılan ana veri setleri mevcut; yalnız kararın risk ve değişim şartlarını izle.")
 	}
 	return compactPDFBullets(lines, 4, 150)
+}
+
+func reportValueInvestingMarginComputed(result analysis.SymbolAnalysis) bool {
+	v := result.Professional.ValueInvesting
+	return v.Computed &&
+		v.IntrinsicValue.Computed &&
+		v.IntrinsicValue.Base > 0 &&
+		v.MarginOfSafety.Computed &&
+		v.MarginOfSafety.RequiredPct > 0
+}
+
+func reportValueInvestingMarginPass(result analysis.SymbolAnalysis) bool {
+	v := result.Professional.ValueInvesting
+	return reportValueInvestingMarginComputed(result) &&
+		v.MarginOfSafety.BasePct >= v.MarginOfSafety.RequiredPct
 }
 
 func decisionSupportMissingInputs(result analysis.SymbolAnalysis) []string {

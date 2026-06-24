@@ -442,22 +442,22 @@ func reportManifestNextSessionForecast(result analysis.SymbolAnalysis) map[strin
 		"scenario_predicted_open_direction":  nextSessionScenarioForecastManifestText(f, f.PredictedOpenDirection),
 		"scenario_predicted_close_direction": nextSessionScenarioForecastManifestText(f, f.PredictedCloseDirection),
 		"direction_tolerance_pct":            nextSessionScenarioForecastManifestValue(f, f.DirectionTolerancePct),
-		"open_p10":                           f.OpenP10,
-		"open_p50":                           f.OpenP50,
-		"open_p90":                           f.OpenP90,
-		"close_p10":                          f.CloseP10,
-		"close_p50":                          f.CloseP50,
-		"close_p90":                          f.CloseP90,
+		"open_p10":                           nextSessionScenarioForecastManifestValue(f, f.OpenP10),
+		"open_p50":                           nextSessionScenarioForecastManifestValue(f, f.OpenP50),
+		"open_p90":                           nextSessionScenarioForecastManifestValue(f, f.OpenP90),
+		"close_p10":                          nextSessionScenarioForecastManifestValue(f, f.CloseP10),
+		"close_p50":                          nextSessionScenarioForecastManifestValue(f, f.CloseP50),
+		"close_p90":                          nextSessionScenarioForecastManifestValue(f, f.CloseP90),
 		"upside_probability_pct":             nextSessionScenarioForecastManifestValue(f, f.UpsideProbabilityPct),
 		"flat_probability_pct":               nextSessionScenarioForecastManifestValue(f, f.FlatProbabilityPct),
 		"downside_probability_pct":           nextSessionScenarioForecastManifestValue(f, f.DownsideProbabilityPct),
-		"distribution_samples":               f.ForecastDistributionSamples,
-		"invalidation_level":                 f.InvalidationLevel,
-		"invalidation_reason":                emptyStringAsNil(f.InvalidationReason),
-		"raw_expected_low":                   f.RawExpectedLow,
-		"raw_expected_high":                  f.RawExpectedHigh,
-		"tradable_expected_low":              f.TradableExpectedLow,
-		"tradable_expected_high":             f.TradableExpectedHigh,
+		"distribution_samples":               nextSessionScenarioForecastManifestValue(f, float64(f.ForecastDistributionSamples)),
+		"invalidation_level":                 nextSessionScenarioForecastManifestValue(f, f.InvalidationLevel),
+		"invalidation_reason":                nextSessionScenarioForecastManifestText(f, f.InvalidationReason),
+		"raw_expected_low":                   nextSessionScenarioForecastManifestValue(f, f.RawExpectedLow),
+		"raw_expected_high":                  nextSessionScenarioForecastManifestValue(f, f.RawExpectedHigh),
+		"tradable_expected_low":              nextSessionScenarioForecastManifestValue(f, f.TradableExpectedLow),
+		"tradable_expected_high":             nextSessionScenarioForecastManifestValue(f, f.TradableExpectedHigh),
 		"tick_size":                          f.TickSize,
 		"rounding_method":                    f.RoundingMethod,
 		"price_step_rule":                    f.PriceStepRule,
@@ -694,7 +694,7 @@ func nextSessionPointForecastManifestText(forecast analysis.NextSessionForecast,
 }
 
 func nextSessionScenarioForecastManifestValue(forecast analysis.NextSessionForecast, value float64) any {
-	if forecast.ActualAvailable || value == 0 {
+	if !nextSessionForwardScenarioPublishable(forecast) || value == 0 {
 		return nil
 	}
 	return value
@@ -702,7 +702,7 @@ func nextSessionScenarioForecastManifestValue(forecast analysis.NextSessionForec
 
 func nextSessionScenarioForecastManifestText(forecast analysis.NextSessionForecast, value string) any {
 	value = strings.TrimSpace(value)
-	if forecast.ActualAvailable || value == "" {
+	if !nextSessionForwardScenarioPublishable(forecast) || value == "" {
 		return nil
 	}
 	return value

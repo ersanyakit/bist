@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -39,8 +41,8 @@ func runAnalyze(ctx context.Context, appCfg appconfig.Config, store *corestorage
 	fs.StringVar(&cfg.Symbol, "symbol", "", "tek BIST sembolu, ornek: ADEL")
 	fs.StringVar(&cfg.ExcelPath, "excel", "", "symbol/company_name veya Kod/Sirket Unvani kolonlu Excel dosyasi")
 	fs.BoolVar(&all, "all", false, "data/equities altindaki tum hisse senetlerini analiz et")
-	fs.StringVar(&cfg.Provider, "provider", cfg.Provider, "veri kaynagi: tradingview, csv veya mock")
-	fs.StringVar(&cfg.DataDir, "data", cfg.DataDir, "CSV veri klasoru")
+	fs.StringVar(&cfg.Provider, "provider", cfg.Provider, "veri kaynagi: tradingview, bistdb, csv veya mock")
+	fs.StringVar(&cfg.DataDir, "data", cfg.DataDir, "veri kok dizini; bistdb icin data/bist/bist_ohlcv.sqlite kullanilir")
 	fs.StringVar(&cfg.OutputDir, "out", cfg.OutputDir, "equities kok cikti klasoru")
 	fs.StringVar(&cfg.TimeframesCSV, "timeframes", strings.Join(cfg.Timeframes, ","), "virgulle ayrilmis zaman dilimleri")
 	fs.IntVar(&cfg.Workers, "workers", cfg.Workers, "toplu analiz isci sayisi")
@@ -82,6 +84,7 @@ func runAnalyze(ctx context.Context, appCfg appconfig.Config, store *corestorage
 		PortfolioValue:           cfg.Portfolio,
 		RiskPerTradePct:          cfg.RiskPct,
 		PeerLimit:                cfg.PeerLimit,
+		SkipKAPPDFIngest:         envFlag("HISSEBOT_SKIP_KAP_PDF_INGEST"),
 	})
 	writer := reportstorage.NewReportWriter()
 
@@ -235,11 +238,34 @@ func buildAnalyzeProvider(cfg taconfig.Config) (datasource.MarketDataProvider, e
 	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
 	case "tradingview", "tv":
 		return datasource.NewTradingViewProvider(), nil
+	case "bist", "bistdb", "bist-db", "bist_bulletin_db", "bist-bulletin-db", "official", "official-bist":
+		return datasource.NewBISTBulletinDBProvider(bistBulletinDBPath(cfg.DataDir)), nil
 	case "mock":
 		return datasource.NewMockProvider(), nil
 	case "csv":
 		return datasource.NewCSVProvider(cfg.DataDir), nil
 	default:
 		return nil, fmt.Errorf("unsupported provider %q: %w", cfg.Provider, taconfig.ErrInvalidProvider)
+	}
+}
+
+func bistBulletinDBPath(dataDir string) string {
+	dataDir = strings.TrimSpace(dataDir)
+	if dataDir == "" {
+		dataDir = "data"
+	}
+	ext := strings.ToLower(filepath.Ext(dataDir))
+	if ext == ".sqlite" || ext == ".sqlite3" || ext == ".db" {
+		return dataDir
+	}
+	return filepath.Join(dataDir, "bist", "bist_ohlcv.sqlite")
+}
+
+func envFlag(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "t", "yes", "y", "on":
+		return true
+	default:
+		return false
 	}
 }

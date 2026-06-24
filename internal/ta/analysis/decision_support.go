@@ -318,6 +318,9 @@ func buildRetailDecision(result SymbolAnalysis, daily TimeframeAnalysis, hasDail
 		out.ExistingPositionAction = "TUT_RISKI_IZLE"
 		out.Actionable = false
 		out.Status = "central_gate_blocked"
+		if score := result.DecisionClassification.Classes.RetailDirect.Score; score > 0 {
+			out.Confidence = math.Min(out.Confidence, score)
+		}
 		out.Warnings = append(out.Warnings, "merkezi sınıflandırma doğrudan AL/SAT kullanımını onaylamadı: "+strings.Join(result.DecisionClassification.Classes.RetailDirect.FailedGateLabels, ", "))
 	}
 	if !decisionPriceOK(result) {

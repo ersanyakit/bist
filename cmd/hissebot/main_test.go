@@ -30,7 +30,7 @@ func TestBuildAnalyzeProviderRejectsUnknownProvider(t *testing.T) {
 }
 
 func TestBuildAnalyzeProviderAcceptsSupportedProviders(t *testing.T) {
-	for _, provider := range []string{"mock", "csv", "tradingview", "tv"} {
+	for _, provider := range []string{"mock", "csv", "tradingview", "tv", "bistdb", "bist-bulletin-db", "official"} {
 		t.Run(provider, func(t *testing.T) {
 			got, err := buildAnalyzeProvider(taconfig.Config{Provider: provider})
 			if err != nil {
@@ -40,6 +40,15 @@ func TestBuildAnalyzeProviderAcceptsSupportedProviders(t *testing.T) {
 				t.Fatalf("buildAnalyzeProvider(%q) = nil", provider)
 			}
 		})
+	}
+}
+
+func TestBISTBulletinDBPathAcceptsDataRootOrExplicitDB(t *testing.T) {
+	if got, want := bistBulletinDBPath("data"), filepath.Join("data", "bist", "bist_ohlcv.sqlite"); got != want {
+		t.Fatalf("bistBulletinDBPath(data) = %q, want %q", got, want)
+	}
+	if got, want := bistBulletinDBPath(filepath.Join("tmp", "official.sqlite")), filepath.Join("tmp", "official.sqlite"); got != want {
+		t.Fatalf("bistBulletinDBPath(explicit) = %q, want %q", got, want)
 	}
 }
 

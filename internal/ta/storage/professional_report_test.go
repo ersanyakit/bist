@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,6 +80,9 @@ func TestReportTextSimplifiesTechnicalEnglishForInvestors(t *testing.T) {
 	}
 	if got := reportText("bist_official_unprocessed_ohlcv kap_pdf_financial_reading_requires_review"); strings.Contains(got, "bist_official") || strings.Contains(got, "kap_pdf") {
 		t.Fatalf("reportText leaked internal data keys: %q", got)
+	}
+	if got := reportText("Strict kanıt politikası model çıktısını engelledi: kap_pdf_ingest_missing"); !strings.Contains(got, "kap_pdf_ingest_missing") {
+		t.Fatalf("strict evidence blocker code should stay auditable, got %q", got)
 	}
 	if got := reportLabel("bist_official_unprocessed_ohlcv"); got != "BIST resmi günlük bülten OHLCV" {
 		t.Fatalf("reportLabel(bist_official_unprocessed_ohlcv) = %q", got)
@@ -229,7 +233,7 @@ func TestHydrateDerivedReportFieldsLoadsVAPAndForecastForLegacyResult(t *testing
 	}
 }
 
-func TestSanitizeUnpublishedPointForecastsKeepsFutureScenarioPrices(t *testing.T) {
+func TestSanitizeUnpublishedPointForecastsSuppressesFutureScenarioPrices(t *testing.T) {
 	result := analysis.SymbolAnalysis{
 		NextSessionForecast: analysis.NextSessionForecast{
 			Computed:                true,
@@ -276,17 +280,18 @@ func TestSanitizeUnpublishedPointForecastsKeepsFutureScenarioPrices(t *testing.T
 	}
 
 	got := sanitizeUnpublishedPointForecasts(result)
-	if got.NextSessionForecast.PredictedOpen != 101 || got.NextSessionForecast.PredictedClose != 102 ||
-		got.NextSessionForecast.RawPredictedOpen != 100.8 || got.NextSessionForecast.RawPredictedClose != 102.2 {
-		t.Fatalf("future scenario forecast prices should remain available: %+v", got.NextSessionForecast)
+	if got.NextSessionForecast.PredictedOpen != 0 || got.NextSessionForecast.PredictedClose != 0 ||
+		got.NextSessionForecast.RawPredictedOpen != 0 || got.NextSessionForecast.RawPredictedClose != 0 {
+		t.Fatalf("blocked future forecast prices should be suppressed: %+v", got.NextSessionForecast)
 	}
-	if got.NextSessionForecast.ExpectedLow != 98 || got.NextSessionForecast.CloseP50 != 102 {
-		t.Fatalf("scenario band/distribution should remain available: %+v", got.NextSessionForecast)
+	if got.NextSessionForecast.ExpectedLow != 0 || got.NextSessionForecast.CloseP50 != 0 ||
+		got.NextSessionForecast.ForecastDistributionSamples != 0 {
+		t.Fatalf("blocked scenario band/distribution should be suppressed: %+v", got.NextSessionForecast)
 	}
-	if got.NextSessionForecast.PredictedOpenDirection != "yükseliş" || got.NextSessionForecast.PredictedCloseDirection != "yükseliş" ||
-		got.NextSessionForecast.DirectionBias != "yükseliş" || got.NextSessionForecast.BiasStrength != "orta" ||
-		got.NextSessionForecast.UpsideProbabilityPct != 55 || got.NextSessionForecast.DirectionTolerancePct != 0.05 {
-		t.Fatalf("future scenario direction should remain available: %+v", got.NextSessionForecast)
+	if got.NextSessionForecast.PredictedOpenDirection != "" || got.NextSessionForecast.PredictedCloseDirection != "" ||
+		got.NextSessionForecast.DirectionBias != "" || got.NextSessionForecast.BiasStrength != "" ||
+		got.NextSessionForecast.UpsideProbabilityPct != 0 || got.NextSessionForecast.DirectionTolerancePct != 0 {
+		t.Fatalf("blocked future scenario direction should be suppressed: %+v", got.NextSessionForecast)
 	}
 	if got.NextSessionForecast.PointForecastPublishable ||
 		got.NextSessionForecast.PublishedPredictedOpen != nil ||
@@ -294,8 +299,8 @@ func TestSanitizeUnpublishedPointForecastsKeepsFutureScenarioPrices(t *testing.T
 		t.Fatalf("non decision-grade forecast must not populate published point fields: %+v", got.NextSessionForecast)
 	}
 	daily := got.Timeframes["1D"].NextSessionForecast
-	if daily.PredictedOpen != 101 || daily.PredictedClose != 102 || daily.PredictedCloseDirection != "yükseliş" || daily.DirectionBias != "yükseliş" {
-		t.Fatalf("timeframe future scenario forecast should remain available: %+v", daily)
+	if daily.PredictedOpen != 0 || daily.PredictedClose != 0 || daily.PredictedCloseDirection != "" || daily.DirectionBias != "" {
+		t.Fatalf("timeframe blocked future scenario forecast should be suppressed: %+v", daily)
 	}
 }
 
@@ -750,8 +755,9 @@ func TestProfessionalReportHTMLIncludesTechnicalAppendix(t *testing.T) {
 	if forecastTR["tahmini_acilis"] != nil || forecastTR["tahmini_kapanis"] != nil {
 		t.Fatalf("Turkish analysis must not expose blocked scenario prices as published forecasts: %+v", forecastTR)
 	}
-	if forecastTR["senaryo_acilis"] != 101.25 || forecastTR["senaryo_kapanis"] != 102.40 {
-		t.Fatalf("Turkish analysis must expose future scenario prices separately: %+v", forecastTR)
+	if forecastTR["senaryo_acilis"] != nil || forecastTR["senaryo_kapanis"] != nil ||
+		forecastTR["beklenen_en_dusuk"] != nil || forecastTR["kapanis_p50"] != nil {
+		t.Fatalf("Turkish analysis must suppress blocked future scenario prices/bands: %+v", forecastTR)
 	}
 	if forecastTR["gerceklesen_var"] != false || forecastTR["gerceklesen_acilis"] != nil || forecastTR["gerceklesen_kapanis"] != nil {
 		t.Fatalf("Turkish analysis must keep unavailable actual prices null: %+v", forecastTR)
@@ -762,12 +768,16 @@ func TestProfessionalReportHTMLIncludesTechnicalAppendix(t *testing.T) {
 	if forecastTR["tahmini_acilis_yonu"] != nil || forecastTR["tahmini_kapanis_yonu"] != nil {
 		t.Fatalf("Turkish analysis must not expose blocked scenario directions as published forecasts: %+v", forecastTR)
 	}
-	if forecastTR["senaryo_acilis_yonu"] != "yükseliş" || forecastTR["senaryo_kapanis_yonu"] != "yükseliş" ||
-		forecastTR["yon_beklentisi"] != "yükseliş" || forecastTR["yon_gucu"] != "orta" {
-		t.Fatalf("Turkish analysis must expose scenario direction separately while published points stay gated: %+v", forecastTR)
+	if forecastTR["senaryo_acilis_yonu"] != nil || forecastTR["senaryo_kapanis_yonu"] != nil ||
+		forecastTR["yon_beklentisi"] != nil || forecastTR["yon_gucu"] != nil {
+		t.Fatalf("Turkish analysis must suppress blocked future scenario direction: %+v", forecastTR)
 	}
 	if forecastTR["nokta_tahmin_yayinlanabilir"] != false || forecastTR["yayinlanan_tahmini_acilis"] != nil || forecastTR["yayinlanan_tahmini_kapanis"] != nil {
 		t.Fatalf("Turkish analysis must suppress point forecast without backtest validation: %+v", forecastTR)
+	}
+	if forecastTR["nokta_tahmin_yayin_durumu"] != "yayinlanmadi" ||
+		!strings.Contains(fmt.Sprint(forecastTR["nokta_tahmin_bastirma_nedeni"]), "Fiyat/yön senaryosu yayınlanmadı") {
+		t.Fatalf("Turkish analysis must explain blocked forecast publication: %+v", forecastTR)
 	}
 	professionalTR, ok := turkish["profesyonel_analiz"].(map[string]any)
 	if !ok || professionalTR["vap_fiili_dolasim"] == nil || professionalTR["vap_bist_endeks_portfoyu"] == nil {
@@ -781,16 +791,14 @@ func TestProfessionalReportHTMLIncludesTechnicalAppendix(t *testing.T) {
 		"ol-grid",
 		"Son Kapanış",
 		"Açılış Fiyat Senaryosu",
-		"101.25 TL senaryo",
 		"Kapanış Fiyat Senaryosu",
-		"102.40 TL senaryo",
+		"Yayınlanmadı",
 		"Ertesi Kapanış Yönü",
 		"Beklenen kapanış yönü",
 		"Ertesi Seans Yönü",
-		"senaryo, karar/emir fiyatı değil",
 		"Bir Sonraki Seans Senaryo ve Risk Kapısı",
 		"Senaryo kullanım durumu",
-		"Fiyat/yön senaryosu üretildi",
+		"Fiyat/yön senaryosu yayınlanmadı",
 		"Açılış fiyat senaryosu",
 		"VAP / MKK Piyasa Yapısı",
 		"Fiili dolaşım oranı",
@@ -815,9 +823,9 @@ func TestProfessionalReportHTMLIncludesTechnicalAppendix(t *testing.T) {
 	md := markdownSummary(result)
 	for _, want := range []string{
 		"Bir Sonraki Seans Beklentisi",
-		"Senaryo durumu: Fiyat/yön senaryosu üretildi",
-		"Açılış fiyat senaryosu: 101.25 TL",
-		"Kapanış fiyat senaryosu: 102.40 TL",
+		"Senaryo durumu: Fiyat/yön senaryosu yayınlanmadı",
+		"Açılış fiyat senaryosu: Yayınlanmadı",
+		"Kapanış fiyat senaryosu: Yayınlanmadı",
 		"Kapanış dağılımı P10/P50/P90",
 		"VAP / MKK Piyasa Yapısı",
 		"Fiili dolaşım oranı: 31.50%",
@@ -840,8 +848,8 @@ func TestProfessionalReportHTMLIncludesTechnicalAppendix(t *testing.T) {
 	if fallbackForecastTR["tahmini_acilis"] != nil || fallbackForecastTR["tahmini_kapanis"] != nil {
 		t.Fatalf("Turkish analysis fallback must not expose blocked scenario prices as published forecasts: %+v", fallbackForecastTR)
 	}
-	if fallbackForecastTR["senaryo_acilis"] != 101.25 || fallbackForecastTR["senaryo_kapanis"] != 102.40 {
-		t.Fatalf("Turkish analysis fallback must expose future scenario prices separately: %+v", fallbackForecastTR)
+	if fallbackForecastTR["senaryo_acilis"] != nil || fallbackForecastTR["senaryo_kapanis"] != nil {
+		t.Fatalf("Turkish analysis fallback must suppress blocked future scenario prices: %+v", fallbackForecastTR)
 	}
 	if fallbackForecastTR["nokta_tahmin_yayinlanabilir"] != false || fallbackForecastTR["yayinlanan_tahmini_acilis"] != nil || fallbackForecastTR["yayinlanan_tahmini_kapanis"] != nil {
 		t.Fatalf("Turkish analysis published forecast missing: %+v", fallbackTR["sonraki_seans_tahmini"])
@@ -2142,6 +2150,20 @@ func TestOneLookUpsideLinesDedupesSameResistanceLevel(t *testing.T) {
 				"411.25 üstü kapanış; alıcı ilgisinin pozitife dönmesi",
 				"para akışının pozitife dönmesi",
 				"420.00 üstü kapanış ikinci teyit olur",
+				"içsel değere göre yeterli güvenlik marjı",
+			},
+		},
+		Professional: professional.Report{
+			ValueInvesting: value.Report{
+				Computed: false,
+				IntrinsicValue: value.IntrinsicValueReport{
+					Computed: false,
+					Base:     0,
+				},
+				MarginOfSafety: value.MarginOfSafetyReport{
+					Computed:    false,
+					RequiredPct: 25,
+				},
 			},
 		},
 	}
@@ -2159,6 +2181,13 @@ func TestOneLookUpsideLinesDedupesSameResistanceLevel(t *testing.T) {
 	}
 	if strings.Contains(joined, "ilgisinın") {
 		t.Fatalf("upside lines contain malformed Turkish spelling: %v", lines)
+	}
+	if strings.Contains(joined, "güvenlik marjı") {
+		t.Fatalf("upside lines must not claim safety margin when valuation is suppressed: %v", lines)
+	}
+	dataLines := strings.Join(oneLookDataLines(result), "\n")
+	if !strings.Contains(dataLines, "içsel değer") || !strings.Contains(dataLines, "güvenlik marjı") {
+		t.Fatalf("suppressed valuation should be shown as missing data, got: %s", dataLines)
 	}
 }
 

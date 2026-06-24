@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"hissebot/internal/ta/analysis"
 	"hissebot/internal/ta/datasource"
 )
 
@@ -210,16 +211,22 @@ func TestForecastAuditRangeSummaryPrioritizesBandQualityOverExactHit(t *testing.
 
 	report := forecastAuditRangeReport{Symbol: "ASELS", Summary: summary, Rows: rows}
 	md := forecastAuditRangeMarkdown(report)
-	for _, want := range []string{"Birincil kalite", "İkincil exact denetim", "Rejim Performansı", "Senaryo/no-trade"} {
+	for _, want := range []string{"Birincil kalite", "İkincil exact denetim", "Rejim Performansı", "Yayınlanmadı/no-trade", "Yayın A", "Gün Gün Hata Nedenleri"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("markdown missing %q\n%s", want, md)
 		}
 	}
+	if strings.Contains(md, "Tahmin Açılış") || strings.Contains(md, "Tahmin Kapanış") || strings.Contains(md, "İç Model A/K") {
+		t.Fatalf("markdown must not label suppressed raw model values as published forecasts\n%s", md)
+	}
 	html := forecastAuditRangeHTML(report)
-	for _, want := range []string{"Birincil kalite", "Exact fiyat isabeti ana başarı metriği değildir", "Rejim Performansı"} {
+	for _, want := range []string{"Birincil kalite", "Exact fiyat isabeti ana başarı metriği değildir", "Rejim Performansı", "Yayın kapısı", "Gün Gün Hata Nedenleri"} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("html missing %q\n%s", want, html)
 		}
+	}
+	if strings.Contains(html, "Tahmin Açılış") || strings.Contains(html, "Tahmin Kapanış") {
+		t.Fatalf("html must not label suppressed raw model values as published forecasts\n%s", html)
 	}
 }
 
@@ -229,8 +236,82 @@ func TestForecastAuditOutcomeDistinguishesDirectionOnlyAndNoTrade(t *testing.T) 
 		t.Fatalf("direction-only outcome=%q", got)
 	}
 	noTrade := forecastAuditRangeRow{CloseErrorPct: 0.75, CloseDirectionHit: true, ModelForecastPublishable: false, TradeSignalAllowed: false}
-	if got := forecastAuditOverallResultText(noTrade); !strings.Contains(got, "Senaryo/no-trade") || !strings.Contains(got, "band içinde") {
+	if got := forecastAuditOverallResultText(noTrade); !strings.Contains(got, "Yayınlanmadı/no-trade") || !strings.Contains(got, "band içinde") {
 		t.Fatalf("no-trade outcome=%q", got)
+	}
+}
+
+func TestForecastAuditRangeSuppressesUnpublishablePredictedFields(t *testing.T) {
+	records := make([]datasource.DailyBulletinRecord, 0, 32)
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; len(records) < 32; i++ {
+		day := start.AddDate(0, 0, i)
+		if day.Weekday() == time.Saturday || day.Weekday() == time.Sunday {
+			continue
+		}
+		closePrice := 100 + float64(len(records))
+		records = append(records, datasource.DailyBulletinRecord{
+			TradingDate: day.Format("2006-01-02"),
+			Open:        closePrice - 0.25,
+			High:        closePrice + 1,
+			Low:         closePrice - 1,
+			Close:       closePrice,
+			Volume:      1000000,
+			SourcePath:  "fixture/" + day.Format("2006-01-02") + ".csv",
+		})
+	}
+	from, err := time.Parse("2006-01-02", records[30].TradingDate)
+	if err != nil {
+		t.Fatalf("parse fixture date: %v", err)
+	}
+	builder := func(ctx context.Context, symbol string, asOf datasource.DailyBulletinRecord, forecastFor string, prefixRecords []datasource.DailyBulletinRecord) (forecastAuditRangeForecastResult, error) {
+		return forecastAuditRangeForecastResult{
+			Forecast: analysis.NextSessionForecast{
+				Computed:       true,
+				ForecastFor:    forecastFor,
+				LastClose:      asOf.Close,
+				PredictedOpen:  asOf.Close + 5,
+				PredictedClose: asOf.Close + 6,
+				BacktestMetrics: analysis.NextSessionBacktestMetrics{
+					Samples:            60,
+					CloseMAPE:          2.75,
+					DirectionAccuracy:  45,
+					TradeSignalAllowed: false,
+				},
+				DecisionForecast: analysis.NextSessionDecisionForecast{
+					Confidence:         "low",
+					TradeSignalAllowed: false,
+				},
+				Model: "fixture_unpublishable",
+			},
+			Context: "test_fixture",
+		}, nil
+	}
+	report, err := buildForecastAuditRangeReportWithBuilder(context.Background(), "ASELS", from, from, records, builder)
+	if err != nil {
+		t.Fatalf("build forecast audit range report: %v", err)
+	}
+	if report.Summary.PublishableReportStatus != "no_publishable_forecast" {
+		t.Fatalf("publishable report status=%q", report.Summary.PublishableReportStatus)
+	}
+	row := report.Rows[0]
+	if row.ModelForecastPublishable || row.PublishedPredictedOpen != nil || row.PublishedPredictedClose != nil {
+		t.Fatalf("suppressed row exposed published forecast: %+v", row)
+	}
+	if row.PredictedOpen != 0 || row.PredictedClose != 0 || row.PredictedOpenDirection != "" || row.PredictedCloseDirection != "" {
+		t.Fatalf("suppressed row must not expose decision predicted fields: %+v", row)
+	}
+	if row.ScenarioPredictedOpen <= 0 || row.ScenarioPredictedClose <= 0 ||
+		row.ScenarioPredictedOpenDirection == "" || row.ScenarioPredictedCloseDirection == "" {
+		t.Fatalf("suppressed scenario audit fields missing: %+v", row)
+	}
+	md := forecastAuditRangeMarkdown(report)
+	if !strings.Contains(md, "Yayınlanmadı/no-trade") || strings.Contains(md, "İç Model A/K") {
+		t.Fatalf("markdown should show no published forecast and hide scenario prices\n%s", md)
+	}
+	html := forecastAuditRangeHTML(report)
+	if !strings.Contains(html, "Yayınlanmadı/no-trade") || strings.Contains(html, "İç Model A/K") {
+		t.Fatalf("html should show no published forecast and hide scenario prices\n%s", html)
 	}
 }
 

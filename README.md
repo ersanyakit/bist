@@ -25,7 +25,8 @@ go run ./cmd/hissebot sync kap-attachments -repeat -pass-delay 5m -newest-first 
 WORKERS=4 ./scripts/sync_kap_attachments_parallel.sh
 go run ./cmd/hissebot sync kap-document-archive
 go run ./cmd/hissebot sync kap-extract -ticker ASELS
-go run ./cmd/hissebot analyze -symbol ADEL
+	go run ./cmd/hissebot analyze -symbol ADEL
+	go run ./cmd/hissebot analyze -symbol ASELS -provider bistdb -timeframes 1D,1W,1M
 go run ./cmd/hissebot analyze -all
 go run ./cmd/hissebot audit enterprise -mode research
 go run ./tools/analysis_report_audit -path data/equities/ASELS/analysis/2026-06-13/analysis.json -spot-only=true
@@ -138,11 +139,12 @@ Timeout alan dönemler varsayılan olarak `3` kez yeniden denenir. Rate limit ve
 HISSEBOT_COMMAND_TIMEOUT=8h go run ./cmd/hissebot financials run -workers 8 -ticker-delay 2s -retries 6
 ```
 
-Teknik analiz, indikatör, formasyon, destek/direnç, risk planı ve grafik raporları aynı binary içindeki `analyze` komutuyla üretilir. Varsayılan veri kaynağı TradingView'dir:
+Teknik analiz, indikatör, formasyon, destek/direnç, risk planı ve grafik raporları aynı binary içindeki `analyze` komutuyla üretilir. Varsayılan veri kaynağı TradingView'dir; resmi BIST günlük OHLCV ile doğrulanabilir rapor için `-provider bistdb` kullanın:
 
 ```bash
 go run ./cmd/hissebot analyze -symbol ADEL
 go run ./cmd/hissebot analyze -symbol ADEL -timeframes 1D,1W,1M
+go run ./cmd/hissebot analyze -symbol ASELS -provider bistdb -timeframes 1D,1W,1M
 go run ./cmd/hissebot analyze -excel "Şirketler.xlsx" -workers 8
 go run ./cmd/hissebot analyze -all -workers 8
 ```
@@ -160,7 +162,7 @@ Tarayıcıdan `http://127.0.0.1:1453/` adresindeki form ile tek tuş rapor üret
 ```bash
 curl -X POST http://127.0.0.1:1453/reports \
   -H 'Content-Type: application/json' \
-  -d '{"symbol":"BORSK","provider":"tradingview","mode":"production","timeframes":["1D","1W","1M"]}'
+  -d '{"symbol":"BORSK","provider":"bistdb","mode":"production","timeframes":["1D","1W","1M"]}'
 ```
 
 Üç veri kapısı zorunlu olsun istiyorsanız `require_elite_candidate` gönderin. Bu modda rapor yine üretilir, fakat değer yatırım tezi, kurumsal portföy uygunluğu ve trading edge sinyali aynı anda geçmezse API `status:"rejected"` döner:
@@ -168,7 +170,7 @@ curl -X POST http://127.0.0.1:1453/reports \
 ```bash
 curl -X POST http://127.0.0.1:1453/reports \
   -H 'Content-Type: application/json' \
-  -d '{"symbol":"BORSK","provider":"tradingview","mode":"production","timeframes":["1D","1W","1M"],"require_elite_candidate":true}'
+  -d '{"symbol":"BORSK","provider":"bistdb","mode":"production","timeframes":["1D","1W","1M"],"require_elite_candidate":true}'
 ```
 
 Tek tuş rapor servisini lokal dışına açacaksanız `HISSEBOT_ENDPOINT_TOKEN` verin ve istekte `Authorization: Bearer <token>` veya `X-Hissebot-Token: <token>` başlığını gönderin.

@@ -62,6 +62,8 @@ func run(args []string) error {
 		return runFinancials(ctx, cfg, store, args[1:])
 	case "analyze":
 		return runAnalyze(ctx, cfg, store, args[1:])
+	case "forecast-audit":
+		return runForecastAudit(ctx, cfg, store, args[1:])
 	case "serve":
 		return runServe(ctx, cfg, store, args[1:])
 	case "audit":
@@ -942,6 +944,7 @@ Commands:
   financials import                Legacy tumBilancolar.json dosyasini ice aktarir
   financials run                   Bilancolari tek geciste ceker, birlestirir ve hesaplar
   analyze                           Teknik analiz, indikator, formasyon ve grafik raporu uretir
+  forecast-audit                   Resmi BIST gerceklesenlerle forecast nokta/range denetimi uretir
   serve comments                   Investing yorum websocket servisinin dosya tabanli hali
   serve reports                    Tek tus PDF/HTML analiz raporu ureten HTTP endpoint'i
   serve api                        Fiber v3 JSON API; sektor endpointleri dahil

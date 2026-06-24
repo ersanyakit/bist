@@ -57,6 +57,7 @@ type EngineOptions struct {
 	PortfolioValue           float64
 	RiskPerTradePct          float64
 	PeerLimit                int
+	SkipKAPPDFIngest         bool
 }
 
 type SymbolRequest struct {
@@ -541,7 +542,7 @@ func applyPriceQualityToTechnicalGates(result SymbolAnalysis) SymbolAnalysis {
 	return result
 }
 
-const bistBulletinForecastValidationLimit = 0
+const bistBulletinForecastValidationLimit = 320
 
 func (e *Engine) attachBISTBulletinContext(ctx context.Context, result SymbolAnalysis) SymbolAnalysis {
 	if ohlcv.IsCryptoAssetType(result.AssetType) || ohlcv.IsCommodityAssetType(result.AssetType) {
@@ -1383,6 +1384,7 @@ func (e *Engine) professionalReport(ctx context.Context, result SymbolAnalysis, 
 			PortfolioValue:           e.options.PortfolioValue,
 			RiskPerTradePct:          e.options.RiskPerTradePct,
 			PeerLimit:                e.options.PeerLimit,
+			SkipKAPPDFIngest:         e.options.SkipKAPPDFIngest,
 		},
 	})
 }

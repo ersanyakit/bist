@@ -44,6 +44,11 @@ var kapQualityKeywords = []string{
 	"portfoy",
 }
 
+var (
+	financialQualityKeywordSlugs = qualityKeywordSlugs(financialQualityKeywords)
+	kapQualityKeywordSlugs       = qualityKeywordSlugs(kapQualityKeywords)
+)
+
 func AssessTextQuality(text string) QualityResult {
 	length := len([]rune(text))
 	result := QualityResult{TextLength: length}
@@ -82,8 +87,9 @@ func AssessTextQuality(text string) QualityResult {
 	case result.NumericDensity > 0:
 		numericScore = 0.45
 	}
-	financialScore := keywordScore(text, financialQualityKeywords)
-	kapScore := keywordScore(text, kapQualityKeywords)
+	textSlug := util.SlugTR(text)
+	financialScore := keywordScoreFromSlug(textSlug, financialQualityKeywordSlugs)
+	kapScore := keywordScoreFromSlug(textSlug, kapQualityKeywordSlugs)
 	printableScore := clamp01(float64(printable) / float64(maxInt(length, 1)))
 
 	score := 0.34*lengthScore + 0.16*numericScore + 0.30*financialScore + 0.12*kapScore + 0.08*printableScore
@@ -270,14 +276,24 @@ func removeQualityWarning(warnings []string, warning string) []string {
 	return out
 }
 
-func keywordScore(text string, keywords []string) float64 {
-	slug := util.SlugTR(text)
+func qualityKeywordSlugs(keywords []string) []string {
+	out := make([]string, 0, len(keywords))
+	for _, keyword := range keywords {
+		slug := util.SlugTR(keyword)
+		if slug != "" {
+			out = append(out, slug)
+		}
+	}
+	return out
+}
+
+func keywordScoreFromSlug(slug string, keywordSlugs []string) float64 {
 	if slug == "" {
 		return 0
 	}
 	count := 0
-	for _, keyword := range keywords {
-		if strings.Contains(slug, util.SlugTR(keyword)) {
+	for _, keyword := range keywordSlugs {
+		if strings.Contains(slug, keyword) {
 			count++
 		}
 	}
