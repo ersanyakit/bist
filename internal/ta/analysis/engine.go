@@ -1706,9 +1706,18 @@ func applyBISTBulletinRecordsToNextSessionForecast(f NextSessionForecast, record
 	if validateOverlay {
 		allowed, baseline, overlay := bistBulletinOverlayValidationAllowsUse(known, assetType)
 		if !allowed {
-			openAnchor := nextSessionForecastBISTBulletinOpenAnchorBacktest(known, assetType, forecastRollingBacktestWindow)
-			if bistBulletinOpenAnchorValidationAllowsUse(baseline, overlay, openAnchor) {
-				f = applyBISTBulletinOpenAnchorForecast(base, f, openAnchor, assetType, symbol)
+			closeFallbackAnchor := nextSessionForecastBISTBulletinOpenAnchorBacktest(known, assetType, forecastRollingBacktestWindow)
+			openOnlyAnchor := nextSessionForecastBISTBulletinOpenAnchorOpenOnlyBacktest(known, assetType, forecastRollingBacktestWindow)
+			closeFallbackAllowed := bistBulletinOpenAnchorValidationAllowsUse(baseline, overlay, closeFallbackAnchor)
+			openOnlyAllowed := bistBulletinOpenAnchorValidationAllowsUse(baseline, overlay, openOnlyAnchor)
+			if closeFallbackAllowed || openOnlyAllowed {
+				selectedAnchor := closeFallbackAnchor
+				useCloseFallback := closeFallbackAllowed
+				if openOnlyAllowed && (!closeFallbackAllowed || bistBulletinBacktestPreferred(openOnlyAnchor, closeFallbackAnchor)) {
+					selectedAnchor = openOnlyAnchor
+					useCloseFallback = false
+				}
+				f = applyBISTBulletinOpenAnchorForecast(base, f, selectedAnchor, assetType, symbol, useCloseFallback)
 				f = applyTradablePriceStepToNextSessionForecast(f, assetType, symbol)
 				return syncNextSessionDecisionForecast(f, symbol)
 			}
@@ -1736,8 +1745,12 @@ func ApplyBISTBulletinBacktestToNextSessionForecast(f NextSessionForecast, recor
 	backtestSource := "bist_thb_official_bulletin_selected_baseline"
 	metrics := nextSessionForecastBISTBulletinVariantBacktest(records, assetType, forecastRollingBacktestWindow, false)
 	if useOpenAnchor {
-		backtestSource = "bist_thb_official_bulletin_selected_open_anchor"
+		backtestSource = "bist_thb_official_bulletin_selected_open_anchor_close_fallback"
 		metrics = nextSessionForecastBISTBulletinOpenAnchorBacktest(records, assetType, forecastRollingBacktestWindow)
+		if strings.Contains(strings.ToLower(f.Model), "bist_open_anchor_open_only") {
+			backtestSource = "bist_thb_official_bulletin_selected_open_anchor_open_only"
+			metrics = nextSessionForecastBISTBulletinOpenAnchorOpenOnlyBacktest(records, assetType, forecastRollingBacktestWindow)
+		}
 	} else if useOverlay {
 		backtestSource = "bist_thb_official_bulletin_selected_overlay"
 		metrics = nextSessionForecastBISTBulletinVariantBacktest(records, assetType, forecastRollingBacktestWindow, true)
@@ -5014,6 +5027,14 @@ func nextSessionForecastBISTBulletinVariantBacktest(records []datasource.DailyBu
 }
 
 func nextSessionForecastBISTBulletinOpenAnchorBacktest(records []datasource.DailyBulletinRecord, assetType string, limit int) nextSessionForecastBacktestMetrics {
+	return nextSessionForecastBISTBulletinOpenAnchorVariantBacktest(records, assetType, limit, true)
+}
+
+func nextSessionForecastBISTBulletinOpenAnchorOpenOnlyBacktest(records []datasource.DailyBulletinRecord, assetType string, limit int) nextSessionForecastBacktestMetrics {
+	return nextSessionForecastBISTBulletinOpenAnchorVariantBacktest(records, assetType, limit, false)
+}
+
+func nextSessionForecastBISTBulletinOpenAnchorVariantBacktest(records []datasource.DailyBulletinRecord, assetType string, limit int, closeFallback bool) nextSessionForecastBacktestMetrics {
 	if len(records) < 30 || limit <= 0 {
 		return nextSessionForecastBacktestMetrics{}
 	}
@@ -5043,13 +5064,19 @@ func nextSessionForecastBISTBulletinOpenAnchorBacktest(records []datasource.Dail
 			continue
 		}
 		bias := trendBias(prefix, snapshot, nil)
-		prediction := computeNextSessionForecastModel(prefix, snapshot, bias, assetType, false)
-		prediction = applyBISTBulletinRecordsToNextSessionForecast(prediction, prefixRecords, assetType, "", false)
-		if !prediction.Computed || prediction.PredictedOpen <= 0 || prediction.LastClose <= 0 {
+		basePrediction := computeNextSessionForecastModel(prefix, snapshot, bias, assetType, false)
+		overlayPrediction := applyBISTBulletinRecordsToNextSessionForecast(basePrediction, prefixRecords, assetType, "", false)
+		if !basePrediction.Computed || !overlayPrediction.Computed || overlayPrediction.PredictedOpen <= 0 || basePrediction.LastClose <= 0 {
 			continue
 		}
-		predictedOpen := prediction.PredictedOpen
+		predictedOpen := overlayPrediction.PredictedOpen
 		predictedClose := predictedOpen
+		if !closeFallback {
+			if basePrediction.PredictedClose <= 0 {
+				continue
+			}
+			predictedClose = basePrediction.PredictedClose
+		}
 		openAbs := math.Abs(predictedOpen - actual.Open)
 		closeAbs := math.Abs(predictedClose - actual.Close)
 		openPct := 100 * openAbs / actual.Open
@@ -5067,8 +5094,8 @@ func nextSessionForecastBISTBulletinOpenAnchorBacktest(records []datasource.Dail
 		if closePct <= 2.00 {
 			hit200++
 		}
-		predictedDirection := nextSessionForecastDirectionForJSON(predictedClose, prediction.LastClose, true)
-		actualDirection := nextSessionForecastDirectionForJSON(actual.Close, prediction.LastClose, false)
+		predictedDirection := nextSessionForecastDirectionForJSON(predictedClose, basePrediction.LastClose, true)
+		actualDirection := nextSessionForecastDirectionForJSON(actual.Close, basePrediction.LastClose, false)
 		directionCorrect := predictedDirection != "uncertain" && predictedDirection == actualDirection
 		if directionCorrect {
 			directionHits++
@@ -5138,17 +5165,45 @@ func bistBulletinOpenAnchorValidationAllowsUse(baseline, overlay, openAnchor nex
 	return openOverlayUseful && (closeAnchorBetter || directionAnchorUseful)
 }
 
-func applyBISTBulletinOpenAnchorForecast(base, overlay NextSessionForecast, metrics nextSessionForecastBacktestMetrics, assetType, symbol string) NextSessionForecast {
+func bistBulletinBacktestPreferred(candidate, incumbent nextSessionForecastBacktestMetrics) bool {
+	if candidate.samples < nextSessionPointForecastMinBacktestSamples {
+		return false
+	}
+	if incumbent.samples < nextSessionPointForecastMinBacktestSamples {
+		return true
+	}
+	if candidate.closeMAEPct+0.10 < incumbent.closeMAEPct {
+		return true
+	}
+	if math.Abs(candidate.closeMAEPct-incumbent.closeMAEPct) <= 0.10 &&
+		candidate.directionHitRatePct > incumbent.directionHitRatePct+2 {
+		return true
+	}
+	return false
+}
+
+func applyBISTBulletinOpenAnchorForecast(base, overlay NextSessionForecast, metrics nextSessionForecastBacktestMetrics, assetType, symbol string, closeFallback bool) NextSessionForecast {
 	out := base
 	openTarget := firstPositiveFloat(overlay.PredictedOpen, overlay.RawPredictedOpen)
 	if openTarget <= 0 {
 		return out
 	}
 	openTarget = roundForecastPrice(openTarget)
+	closeTarget := openTarget
+	if !closeFallback {
+		closeTarget = firstPositiveFloat(base.PredictedClose, base.RawPredictedClose)
+		if closeTarget <= 0 {
+			closeTarget = firstPositiveFloat(overlay.PredictedClose, overlay.RawPredictedClose)
+		}
+		if closeTarget <= 0 {
+			return out
+		}
+	}
+	closeTarget = roundForecastPrice(closeTarget)
 	out.RawPredictedOpen = openTarget
-	out.RawPredictedClose = openTarget
+	out.RawPredictedClose = closeTarget
 	out.PredictedOpen = openTarget
-	out.PredictedClose = openTarget
+	out.PredictedClose = closeTarget
 	if out.RawExpectedLow <= 0 {
 		out.RawExpectedLow = out.ExpectedLow
 	}
@@ -5156,10 +5211,10 @@ func applyBISTBulletinOpenAnchorForecast(base, overlay NextSessionForecast, metr
 		out.RawExpectedHigh = out.ExpectedHigh
 	}
 	if out.RawExpectedLow > 0 {
-		out.RawExpectedLow = roundForecastPrice(math.Min(out.RawExpectedLow, openTarget))
+		out.RawExpectedLow = roundForecastPrice(math.Min(out.RawExpectedLow, math.Min(openTarget, closeTarget)))
 	}
 	if out.RawExpectedHigh > 0 {
-		out.RawExpectedHigh = roundForecastPrice(math.Max(out.RawExpectedHigh, openTarget))
+		out.RawExpectedHigh = roundForecastPrice(math.Max(out.RawExpectedHigh, math.Max(openTarget, closeTarget)))
 	}
 	out.ExpectedLow = out.RawExpectedLow
 	out.ExpectedHigh = out.RawExpectedHigh
@@ -5178,15 +5233,27 @@ func applyBISTBulletinOpenAnchorForecast(base, overlay NextSessionForecast, metr
 	out.BiasStrength = "validasyon zayıf"
 	out.Confidence = roundForecastMetric(math.Min(out.Confidence, 35))
 	out.ConfidenceLabel = nextSessionConfidenceLabel(out.Confidence)
-	out.Model = withForecastModelOverlay(out.Model, "bist_open_anchor_close_fallback_v1")
-	out.BiasReasons = appendUniqueAnalysisString(out.BiasReasons, fmt.Sprintf(
-		"BIST açılış katmanı kullanıldı, kapanış overlay'i açılış çıpasına indirildi: son %d örnekte açılış MAE %.2f%%, kapanış MAE %.2f%%, yön uyumu %.2f%%.",
-		metrics.samples,
-		metrics.openMAEPct,
-		metrics.closeMAEPct,
-		metrics.directionHitRatePct,
-	))
-	out.Warnings = appendUniqueAnalysisString(out.Warnings, "bist_bulletin_close_overlay_validation_failed_open_anchor_used")
+	if closeFallback {
+		out.Model = withForecastModelOverlay(out.Model, "bist_open_anchor_close_fallback_v1")
+		out.BiasReasons = appendUniqueAnalysisString(out.BiasReasons, fmt.Sprintf(
+			"BIST açılış katmanı kullanıldı, kapanış overlay'i rolling backtest daha iyi olduğu için açılış çıpasına indirildi: son %d örnekte açılış MAE %.2f%%, kapanış MAE %.2f%%, yön uyumu %.2f%%.",
+			metrics.samples,
+			metrics.openMAEPct,
+			metrics.closeMAEPct,
+			metrics.directionHitRatePct,
+		))
+		out.Warnings = appendUniqueAnalysisString(out.Warnings, "bist_bulletin_close_overlay_validation_failed_open_anchor_used")
+	} else {
+		out.Model = withForecastModelOverlay(out.Model, "bist_open_anchor_open_only_v1")
+		out.BiasReasons = appendUniqueAnalysisString(out.BiasReasons, fmt.Sprintf(
+			"BIST açılış katmanı kullanıldı, kapanış baz modelden ayrı hesaplandı: son %d örnekte açılış MAE %.2f%%, kapanış MAE %.2f%%, yön uyumu %.2f%%.",
+			metrics.samples,
+			metrics.openMAEPct,
+			metrics.closeMAEPct,
+			metrics.directionHitRatePct,
+		))
+		out.Warnings = appendUniqueAnalysisString(out.Warnings, "bist_bulletin_open_anchor_used_close_kept_separate")
+	}
 	out.Warnings = appendUniqueAnalysisString(out.Warnings, "forecast_model_validation_failed_not_decision_grade")
 	return out
 }

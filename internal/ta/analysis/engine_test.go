@@ -396,6 +396,65 @@ func TestBISTBulletinOverlayRequiresDecisionGradeValidation(t *testing.T) {
 	}
 }
 
+func TestBISTOpenAnchorKeepsCloseModelSeparate(t *testing.T) {
+	base := NextSessionForecast{
+		Computed:          true,
+		ForecastFor:       "2026-06-22",
+		LastClose:         100,
+		RawPredictedOpen:  100.25,
+		RawPredictedClose: 103.40,
+		PredictedOpen:     100.25,
+		PredictedClose:    103.40,
+		RawExpectedLow:    97,
+		RawExpectedHigh:   104,
+		ExpectedLow:       97,
+		ExpectedHigh:      104,
+		Confidence:        60,
+		Model:             "separate_open_gap_close_intraday_v2",
+	}
+	overlay := base
+	overlay.RawPredictedOpen = 101.75
+	overlay.PredictedOpen = 101.75
+	overlay.RawPredictedClose = 101.75
+	overlay.PredictedClose = 101.75
+
+	got := applyBISTBulletinOpenAnchorForecast(base, overlay, nextSessionForecastBacktestMetrics{
+		samples:             60,
+		openMAEPct:          0.70,
+		closeMAEPct:         1.40,
+		directionHitRatePct: 58,
+	}, ohlcv.AssetTypeEquity, "ASELS", false)
+
+	if got.PredictedOpen != 101.75 {
+		t.Fatalf("open anchor should use BIST overlay open: %+v", got)
+	}
+	if got.PredictedClose != 103.40 {
+		t.Fatalf("open anchor must keep close separate from open and round to tick: %+v", got)
+	}
+	if got.PredictedOpen == got.PredictedClose {
+		t.Fatalf("open anchor must not copy open into close: %+v", got)
+	}
+	if !strings.Contains(got.Model, "bist_open_anchor_open_only_v1") {
+		t.Fatalf("expected open-only anchor marker, got %q", got.Model)
+	}
+	if !containsString(got.Warnings, "bist_bulletin_open_anchor_used_close_kept_separate") {
+		t.Fatalf("expected separate-close warning: %+v", got.Warnings)
+	}
+
+	closeFallback := applyBISTBulletinOpenAnchorForecast(base, overlay, nextSessionForecastBacktestMetrics{
+		samples:             60,
+		openMAEPct:          0.60,
+		closeMAEPct:         1.10,
+		directionHitRatePct: 62,
+	}, ohlcv.AssetTypeEquity, "ASELS", true)
+	if closeFallback.PredictedOpen != closeFallback.PredictedClose {
+		t.Fatalf("close fallback candidate should explicitly anchor close to open: %+v", closeFallback)
+	}
+	if !strings.Contains(closeFallback.Model, "bist_open_anchor_close_fallback_v1") {
+		t.Fatalf("expected close-fallback marker, got %q", closeFallback.Model)
+	}
+}
+
 func TestApplyTradablePriceStepToNextSessionForecastUsesBISTTick(t *testing.T) {
 	forecast := NextSessionForecast{
 		Computed:          true,

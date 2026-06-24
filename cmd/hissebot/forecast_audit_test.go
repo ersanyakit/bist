@@ -165,6 +165,7 @@ func TestForecastAuditRangeSummaryPrioritizesBandQualityOverExactHit(t *testing.
 			CloseClosenessScorePct:    99.25,
 			OpenDirectionHit:          true,
 			CloseDirectionHit:         true,
+			IntradayDirectionHit:      true,
 			ModelForecastPublishable:  true,
 			TradeSignalAllowed:        true,
 			ForecastContext:           "technical_ohlcv_bist_only",
@@ -182,6 +183,7 @@ func TestForecastAuditRangeSummaryPrioritizesBandQualityOverExactHit(t *testing.
 			CloseClosenessScorePct:    98.50,
 			OpenDirectionHit:          false,
 			CloseDirectionHit:         true,
+			IntradayDirectionHit:      true,
 			ModelForecastPublishable:  false,
 			TradeSignalAllowed:        false,
 			ForecastContext:           "technical_ohlcv_bist_only",
@@ -196,7 +198,7 @@ func TestForecastAuditRangeSummaryPrioritizesBandQualityOverExactHit(t *testing.
 	if summary.CloseWithin100Pct != 50 || summary.CloseWithin200Pct != 100 {
 		t.Fatalf("close band metrics wrong: %+v", summary)
 	}
-	if summary.CloseDirectionHitPct != 100 || summary.TradeAllowedPct != 50 {
+	if summary.CloseDirectionHitPct != 100 || summary.IntradayDirectionHitPct != 100 || summary.TradeAllowedPct != 50 {
 		t.Fatalf("direction/trade metrics wrong: %+v", summary)
 	}
 	if summary.ModelPublishedPct != 50 || summary.ModelSuppressedPct != 50 {
@@ -205,22 +207,26 @@ func TestForecastAuditRangeSummaryPrioritizesBandQualityOverExactHit(t *testing.
 	if summary.ForecastQualityGrade != "usable_with_gate" {
 		t.Fatalf("quality grade=%q, want usable_with_gate: %+v", summary.ForecastQualityGrade, summary)
 	}
+	if summary.ModelQualityVerdict != "passed_audit_gate" {
+		t.Fatalf("model quality verdict=%q, want passed_audit_gate: %+v", summary.ModelQualityVerdict, summary)
+	}
 	if len(summary.RegimePerformance) != 2 {
 		t.Fatalf("regime buckets missing: %+v", summary.RegimePerformance)
 	}
 
 	report := forecastAuditRangeReport{Symbol: "ASELS", Summary: summary, Rows: rows}
 	md := forecastAuditRangeMarkdown(report)
-	for _, want := range []string{"Birincil kalite", "İkincil exact denetim", "Rejim Performansı", "Yayınlanmadı/no-trade", "Yayın A", "Gün Gün Hata Nedenleri"} {
+	for _, want := range []string{"Birincil kalite", "Model kalite sonucu", "İkincil exact denetim", "Rejim Performansı", "Denetim A", "Denetim Sonuç", "Kapı", "Gün Gün Tespit ve Hata Nedenleri"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("markdown missing %q\n%s", want, md)
 		}
 	}
-	if strings.Contains(md, "Tahmin Açılış") || strings.Contains(md, "Tahmin Kapanış") || strings.Contains(md, "İç Model A/K") {
+	if strings.Contains(md, "Tahmin Açılış") || strings.Contains(md, "Tahmin Kapanış") || strings.Contains(md, "İç Model A/K") ||
+		strings.Contains(md, "Yayın A") || strings.Contains(md, "Yayın K") || strings.Contains(md, "TAHMIN YOK / no-trade") {
 		t.Fatalf("markdown must not label suppressed raw model values as published forecasts\n%s", md)
 	}
 	html := forecastAuditRangeHTML(report)
-	for _, want := range []string{"Birincil kalite", "Exact fiyat isabeti ana başarı metriği değildir", "Rejim Performansı", "Yayın kapısı", "Gün Gün Hata Nedenleri"} {
+	for _, want := range []string{"Birincil kalite", "Exact fiyat isabeti ana başarı metriği değildir", "Rejim Performansı", "Yayın kapısı", "Gün Gün Tespit ve Hata Nedenleri"} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("html missing %q\n%s", want, html)
 		}
@@ -230,14 +236,37 @@ func TestForecastAuditRangeSummaryPrioritizesBandQualityOverExactHit(t *testing.
 	}
 }
 
-func TestForecastAuditOutcomeDistinguishesDirectionOnlyAndNoTrade(t *testing.T) {
-	directionOnly := forecastAuditRangeRow{CloseErrorPct: 1.75, CloseDirectionHit: true, ModelForecastPublishable: true, TradeSignalAllowed: true}
+func TestForecastAuditOutcomeStaysModelAuditResultWhenNotPublished(t *testing.T) {
+	directionOnly := forecastAuditRangeRow{CloseErrorPct: 1.75, IntradayDirectionHit: true, ModelForecastPublishable: true, TradeSignalAllowed: true}
 	if got := forecastAuditOverallResultText(directionOnly); !strings.Contains(got, "Yön uyumlu") || !strings.Contains(got, "bandı dışında") {
 		t.Fatalf("direction-only outcome=%q", got)
 	}
-	noTrade := forecastAuditRangeRow{CloseErrorPct: 0.75, CloseDirectionHit: true, ModelForecastPublishable: false, TradeSignalAllowed: false}
-	if got := forecastAuditOverallResultText(noTrade); !strings.Contains(got, "Yayınlanmadı/no-trade") || !strings.Contains(got, "band içinde") {
+	noTrade := forecastAuditRangeRow{CloseErrorPct: 0.75, IntradayDirectionHit: true, ModelForecastPublishable: false, TradeSignalAllowed: false}
+	if got := forecastAuditOverallResultText(noTrade); !strings.Contains(got, "Band içinde") || !strings.Contains(got, "yön uyumlu") ||
+		strings.Contains(got, "TAHMIN YOK") || strings.Contains(got, "no-trade") {
 		t.Fatalf("no-trade outcome=%q", got)
+	}
+}
+
+func TestForecastAuditIntradayDirectionDoesNotUsePreviousCloseDirection(t *testing.T) {
+	if !forecastAuditDirectionHit(105, 90, 110) {
+		t.Fatalf("fixture must have matching previous-close direction")
+	}
+	if forecastAuditIntradayDirectionHit(105, 105, 100, 110) {
+		t.Fatalf("flat intraday forecast must not match official up intraday move")
+	}
+	row := forecastAuditRangeRow{
+		ActualOpen:                         100,
+		ActualClose:                        110,
+		ScenarioPredictedOpen:              105,
+		ScenarioPredictedClose:             105,
+		ActualIntradayDirection:            forecastAuditIntradayDirection(100, 110),
+		ScenarioPredictedIntradayDirection: forecastAuditIntradayDirection(105, 105),
+		IntradayDirectionHit:               forecastAuditIntradayDirectionHit(105, 105, 100, 110),
+	}
+	text := forecastAuditDirectionAuditText(row)
+	if !strings.Contains(text, "gün içi tahmin yatay") || !strings.Contains(text, "resmi yukari") || !strings.Contains(text, "uyumsuz") {
+		t.Fatalf("intraday direction text=%q", text)
 	}
 }
 
@@ -294,6 +323,9 @@ func TestForecastAuditRangeSuppressesUnpublishablePredictedFields(t *testing.T) 
 	if report.Summary.PublishableReportStatus != "no_publishable_forecast" {
 		t.Fatalf("publishable report status=%q", report.Summary.PublishableReportStatus)
 	}
+	if report.Summary.ModelQualityVerdict != "failed_publish_gate" {
+		t.Fatalf("model quality verdict=%q, want failed_publish_gate", report.Summary.ModelQualityVerdict)
+	}
 	row := report.Rows[0]
 	if row.ModelForecastPublishable || row.PublishedPredictedOpen != nil || row.PublishedPredictedClose != nil {
 		t.Fatalf("suppressed row exposed published forecast: %+v", row)
@@ -306,12 +338,20 @@ func TestForecastAuditRangeSuppressesUnpublishablePredictedFields(t *testing.T) 
 		t.Fatalf("suppressed scenario audit fields missing: %+v", row)
 	}
 	md := forecastAuditRangeMarkdown(report)
-	if !strings.Contains(md, "Yayınlanmadı/no-trade") || strings.Contains(md, "İç Model A/K") {
-		t.Fatalf("markdown should show no published forecast and hide scenario prices\n%s", md)
+	if !strings.Contains(md, "Denetim A") || !strings.Contains(md, "Denetim Sonuç") ||
+		!strings.Contains(md, "Yön Denetimi") || !strings.Contains(md, "tespit: gün içi yön") ||
+		!strings.Contains(md, "gün içi tahmin") ||
+		strings.Contains(md, "İç Model A/K") || strings.Contains(md, "TAHMIN YOK / no-trade") ||
+		strings.Contains(md, "Yayın A") || strings.Contains(md, "yön modeli güvenilmez") {
+		t.Fatalf("markdown should show no published forecast and expose scenario only as audit detection\n%s", md)
 	}
 	html := forecastAuditRangeHTML(report)
-	if !strings.Contains(html, "Yayınlanmadı/no-trade") || strings.Contains(html, "İç Model A/K") {
-		t.Fatalf("html should show no published forecast and hide scenario prices\n%s", html)
+	if !strings.Contains(html, "Denetim A") || !strings.Contains(html, "Denetim Sonuç") ||
+		!strings.Contains(html, "Yön Denetimi") || !strings.Contains(html, "tespit: gün içi yön") ||
+		!strings.Contains(html, "gün içi tahmin") ||
+		strings.Contains(html, "İç Model A/K") || strings.Contains(html, "TAHMIN YOK / no-trade") ||
+		strings.Contains(html, "Yayın A") || strings.Contains(html, "yön modeli güvenilmez") {
+		t.Fatalf("html should show no published forecast and expose scenario only as audit detection\n%s", html)
 	}
 }
 

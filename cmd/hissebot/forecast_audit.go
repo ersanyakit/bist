@@ -100,53 +100,59 @@ type forecastAuditRangeReport struct {
 }
 
 type forecastAuditRangeSummary struct {
-	Rows                     int                              `json:"rows"`
-	OfficialObservedRows     int                              `json:"official_observed_rows"`
-	OfficialResultHitPct     float64                          `json:"official_result_hit_pct"`
-	ForecastContext          string                           `json:"forecast_context,omitempty"`
-	FullContextRows          int                              `json:"full_context_rows"`
-	TechnicalFallbackRows    int                              `json:"technical_fallback_rows"`
-	OfficialOpenExactHitPct  float64                          `json:"official_open_exact_hit_pct"`
-	OfficialCloseExactHitPct float64                          `json:"official_close_exact_hit_pct"`
-	ReportDecisionStatus     string                           `json:"report_decision_status"`
-	PublishableReportStatus  string                           `json:"publishable_report_status"`
-	ForecastQualityGrade     string                           `json:"forecast_quality_grade,omitempty"`
-	ForecastQualityNotes     []string                         `json:"forecast_quality_notes,omitempty"`
-	RegimePerformance        []forecastAuditRegimePerformance `json:"regime_performance,omitempty"`
-	ModelPublishedRows       int                              `json:"model_published_rows"`
-	ModelSuppressedRows      int                              `json:"model_suppressed_rows"`
-	ModelPublishedPct        float64                          `json:"model_published_pct"`
-	ModelSuppressedPct       float64                          `json:"model_suppressed_pct"`
-	TradeAllowedRows         int                              `json:"trade_allowed_rows"`
-	TradeAllowedPct          float64                          `json:"trade_allowed_pct"`
-	OpenExactHits            int                              `json:"open_exact_hits"`
-	CloseExactHits           int                              `json:"close_exact_hits"`
-	OpenExactHitPct          float64                          `json:"open_exact_hit_pct"`
-	CloseExactHitPct         float64                          `json:"close_exact_hit_pct"`
-	OpenPriceWrongPct        float64                          `json:"open_price_wrong_pct"`
-	ClosePriceWrongPct       float64                          `json:"close_price_wrong_pct"`
-	OpenWithin050Pct         float64                          `json:"open_within_0_50_pct"`
-	CloseWithin050Pct        float64                          `json:"close_within_0_50_pct"`
-	OpenWithin100Pct         float64                          `json:"open_within_1_00_pct"`
-	CloseWithin100Pct        float64                          `json:"close_within_1_00_pct"`
-	OpenWithin200Pct         float64                          `json:"open_within_2_00_pct"`
-	CloseWithin200Pct        float64                          `json:"close_within_2_00_pct"`
-	OpenDirectionHits        int                              `json:"open_direction_hits"`
-	CloseDirectionHits       int                              `json:"close_direction_hits"`
-	OpenDirectionHitPct      float64                          `json:"open_direction_hit_pct"`
-	CloseDirectionHitPct     float64                          `json:"close_direction_hit_pct"`
-	OpenDirectionWrongPct    float64                          `json:"open_direction_wrong_pct"`
-	CloseDirectionWrongPct   float64                          `json:"close_direction_wrong_pct"`
-	OpenMAEPct               float64                          `json:"open_mae_pct"`
-	CloseMAEPct              float64                          `json:"close_mae_pct"`
-	OpenAccuracyPct          float64                          `json:"open_accuracy_pct"`
-	CloseAccuracyPct         float64                          `json:"close_accuracy_pct"`
-	OpenClosenessScorePct    float64                          `json:"open_closeness_score_pct"`
-	CloseClosenessScorePct   float64                          `json:"close_closeness_score_pct"`
-	OpenErrorPct             float64                          `json:"open_error_pct"`
-	CloseErrorPct            float64                          `json:"close_error_pct"`
-	FirstActualDate          string                           `json:"first_actual_date,omitempty"`
-	LastActualDate           string                           `json:"last_actual_date,omitempty"`
+	Rows                      int                              `json:"rows"`
+	OfficialObservedRows      int                              `json:"official_observed_rows"`
+	OfficialResultHitPct      float64                          `json:"official_result_hit_pct"`
+	ForecastContext           string                           `json:"forecast_context,omitempty"`
+	FullContextRows           int                              `json:"full_context_rows"`
+	TechnicalFallbackRows     int                              `json:"technical_fallback_rows"`
+	OfficialOpenExactHitPct   float64                          `json:"official_open_exact_hit_pct"`
+	OfficialCloseExactHitPct  float64                          `json:"official_close_exact_hit_pct"`
+	ReportDecisionStatus      string                           `json:"report_decision_status"`
+	PublishableReportStatus   string                           `json:"publishable_report_status"`
+	ModelQualityVerdict       string                           `json:"model_quality_verdict,omitempty"`
+	ForecastQualityGrade      string                           `json:"forecast_quality_grade,omitempty"`
+	ForecastQualityNotes      []string                         `json:"forecast_quality_notes,omitempty"`
+	RegimePerformance         []forecastAuditRegimePerformance `json:"regime_performance,omitempty"`
+	BacktestCloseMAPEAvg      float64                          `json:"backtest_close_mape_avg"`
+	BacktestDirectionAvg      float64                          `json:"backtest_direction_accuracy_avg"`
+	ModelPublishedRows        int                              `json:"model_published_rows"`
+	ModelSuppressedRows       int                              `json:"model_suppressed_rows"`
+	ModelPublishedPct         float64                          `json:"model_published_pct"`
+	ModelSuppressedPct        float64                          `json:"model_suppressed_pct"`
+	TradeAllowedRows          int                              `json:"trade_allowed_rows"`
+	TradeAllowedPct           float64                          `json:"trade_allowed_pct"`
+	OpenExactHits             int                              `json:"open_exact_hits"`
+	CloseExactHits            int                              `json:"close_exact_hits"`
+	OpenExactHitPct           float64                          `json:"open_exact_hit_pct"`
+	CloseExactHitPct          float64                          `json:"close_exact_hit_pct"`
+	OpenPriceWrongPct         float64                          `json:"open_price_wrong_pct"`
+	ClosePriceWrongPct        float64                          `json:"close_price_wrong_pct"`
+	OpenWithin050Pct          float64                          `json:"open_within_0_50_pct"`
+	CloseWithin050Pct         float64                          `json:"close_within_0_50_pct"`
+	OpenWithin100Pct          float64                          `json:"open_within_1_00_pct"`
+	CloseWithin100Pct         float64                          `json:"close_within_1_00_pct"`
+	OpenWithin200Pct          float64                          `json:"open_within_2_00_pct"`
+	CloseWithin200Pct         float64                          `json:"close_within_2_00_pct"`
+	OpenDirectionHits         int                              `json:"open_direction_hits"`
+	CloseDirectionHits        int                              `json:"close_direction_hits"`
+	IntradayDirectionHits     int                              `json:"intraday_direction_hits"`
+	OpenDirectionHitPct       float64                          `json:"open_direction_hit_pct"`
+	CloseDirectionHitPct      float64                          `json:"close_direction_hit_pct"`
+	IntradayDirectionHitPct   float64                          `json:"intraday_direction_hit_pct"`
+	OpenDirectionWrongPct     float64                          `json:"open_direction_wrong_pct"`
+	CloseDirectionWrongPct    float64                          `json:"close_direction_wrong_pct"`
+	IntradayDirectionWrongPct float64                          `json:"intraday_direction_wrong_pct"`
+	OpenMAEPct                float64                          `json:"open_mae_pct"`
+	CloseMAEPct               float64                          `json:"close_mae_pct"`
+	OpenAccuracyPct           float64                          `json:"open_accuracy_pct"`
+	CloseAccuracyPct          float64                          `json:"close_accuracy_pct"`
+	OpenClosenessScorePct     float64                          `json:"open_closeness_score_pct"`
+	CloseClosenessScorePct    float64                          `json:"close_closeness_score_pct"`
+	OpenErrorPct              float64                          `json:"open_error_pct"`
+	CloseErrorPct             float64                          `json:"close_error_pct"`
+	FirstActualDate           string                           `json:"first_actual_date,omitempty"`
+	LastActualDate            string                           `json:"last_actual_date,omitempty"`
 }
 
 type forecastAuditRegimePerformance struct {
@@ -162,68 +168,71 @@ type forecastAuditRegimePerformance struct {
 }
 
 type forecastAuditRangeRow struct {
-	AsOfDate                        string   `json:"as_of_date"`
-	ActualDate                      string   `json:"actual_date"`
-	OfficialResultAvailable         bool     `json:"official_result_available"`
-	OfficialResultAccuracyPct       float64  `json:"official_result_accuracy_pct"`
-	ReportDecisionStatus            string   `json:"report_decision_status"`
-	ModelDecisionStatus             string   `json:"model_decision_status"`
-	ActualOpen                      float64  `json:"actual_open"`
-	ActualClose                     float64  `json:"actual_close"`
-	PredictedOpen                   float64  `json:"predicted_open"`
-	PredictedClose                  float64  `json:"predicted_close"`
-	ScenarioPredictedOpen           float64  `json:"scenario_predicted_open,omitempty"`
-	ScenarioPredictedClose          float64  `json:"scenario_predicted_close,omitempty"`
-	ModelForecastPublishable        bool     `json:"model_forecast_publishable"`
-	ModelForecastPublishStatus      string   `json:"model_forecast_publish_status"`
-	ModelForecastSuppressionReason  string   `json:"model_forecast_suppression_reason,omitempty"`
-	PublishedPredictedOpen          *float64 `json:"published_predicted_open,omitempty"`
-	PublishedPredictedClose         *float64 `json:"published_predicted_close,omitempty"`
-	ActualOpenKurus                 int64    `json:"actual_open_kurus"`
-	ActualCloseKurus                int64    `json:"actual_close_kurus"`
-	PredictedOpenKurus              int64    `json:"predicted_open_kurus"`
-	PredictedCloseKurus             int64    `json:"predicted_close_kurus"`
-	ScenarioPredictedOpenKurus      int64    `json:"scenario_predicted_open_kurus,omitempty"`
-	ScenarioPredictedCloseKurus     int64    `json:"scenario_predicted_close_kurus,omitempty"`
-	ActualOpenDirection             string   `json:"actual_open_direction"`
-	ActualCloseDirection            string   `json:"actual_close_direction"`
-	PredictedOpenDirection          string   `json:"predicted_open_direction"`
-	PredictedCloseDirection         string   `json:"predicted_close_direction"`
-	ScenarioPredictedOpenDirection  string   `json:"scenario_predicted_open_direction,omitempty"`
-	ScenarioPredictedCloseDirection string   `json:"scenario_predicted_close_direction,omitempty"`
-	OpenExactHit                    bool     `json:"open_exact_hit"`
-	CloseExactHit                   bool     `json:"close_exact_hit"`
-	OpenDirectionHit                bool     `json:"open_direction_hit"`
-	CloseDirectionHit               bool     `json:"close_direction_hit"`
-	OpenErrorKurus                  int64    `json:"open_error_kurus"`
-	CloseErrorKurus                 int64    `json:"close_error_kurus"`
-	OpenErrorTL                     float64  `json:"open_error_tl"`
-	CloseErrorTL                    float64  `json:"close_error_tl"`
-	OpenErrorPct                    float64  `json:"open_error_pct"`
-	CloseErrorPct                   float64  `json:"close_error_pct"`
-	OpenAbsErrorPct                 float64  `json:"open_abs_error_pct"`
-	CloseAbsErrorPct                float64  `json:"close_abs_error_pct"`
-	OpenAccuracyPct                 float64  `json:"open_accuracy_pct"`
-	CloseAccuracyPct                float64  `json:"close_accuracy_pct"`
-	OpenWrongPct                    float64  `json:"open_wrong_pct"`
-	CloseWrongPct                   float64  `json:"close_wrong_pct"`
-	OpenClosenessScorePct           float64  `json:"open_closeness_score_pct"`
-	CloseClosenessScorePct          float64  `json:"close_closeness_score_pct"`
-	LastClose                       float64  `json:"last_close"`
-	Model                           string   `json:"model"`
-	ModelWarnings                   []string `json:"model_warnings,omitempty"`
-	ForecastContext                 string   `json:"forecast_context,omitempty"`
-	ForecastContextWarnings         []string `json:"forecast_context_warnings,omitempty"`
-	TradeSignalAllowed              bool     `json:"trade_signal_allowed"`
-	DecisionConfidence              string   `json:"decision_confidence,omitempty"`
-	DirectionModelUnreliable        bool     `json:"direction_model_unreliable,omitempty"`
-	ExpectedIntradayDirection       string   `json:"expected_intraday_direction,omitempty"`
-	VolatilityRegime                string   `json:"volatility_regime,omitempty"`
-	BacktestCloseMAPE               float64  `json:"backtest_close_mape,omitempty"`
-	BacktestDirectionAccuracy       float64  `json:"backtest_direction_accuracy,omitempty"`
-	ErrorCauses                     []string `json:"error_causes,omitempty"`
-	AsOfSourcePath                  string   `json:"as_of_source_path,omitempty"`
-	ActualSourcePath                string   `json:"actual_source_path,omitempty"`
+	AsOfDate                           string   `json:"as_of_date"`
+	ActualDate                         string   `json:"actual_date"`
+	OfficialResultAvailable            bool     `json:"official_result_available"`
+	OfficialResultAccuracyPct          float64  `json:"official_result_accuracy_pct"`
+	ReportDecisionStatus               string   `json:"report_decision_status"`
+	ModelDecisionStatus                string   `json:"model_decision_status"`
+	ActualOpen                         float64  `json:"actual_open"`
+	ActualClose                        float64  `json:"actual_close"`
+	PredictedOpen                      float64  `json:"predicted_open"`
+	PredictedClose                     float64  `json:"predicted_close"`
+	ScenarioPredictedOpen              float64  `json:"scenario_predicted_open,omitempty"`
+	ScenarioPredictedClose             float64  `json:"scenario_predicted_close,omitempty"`
+	ModelForecastPublishable           bool     `json:"model_forecast_publishable"`
+	ModelForecastPublishStatus         string   `json:"model_forecast_publish_status"`
+	ModelForecastSuppressionReason     string   `json:"model_forecast_suppression_reason,omitempty"`
+	PublishedPredictedOpen             *float64 `json:"published_predicted_open,omitempty"`
+	PublishedPredictedClose            *float64 `json:"published_predicted_close,omitempty"`
+	ActualOpenKurus                    int64    `json:"actual_open_kurus"`
+	ActualCloseKurus                   int64    `json:"actual_close_kurus"`
+	PredictedOpenKurus                 int64    `json:"predicted_open_kurus"`
+	PredictedCloseKurus                int64    `json:"predicted_close_kurus"`
+	ScenarioPredictedOpenKurus         int64    `json:"scenario_predicted_open_kurus,omitempty"`
+	ScenarioPredictedCloseKurus        int64    `json:"scenario_predicted_close_kurus,omitempty"`
+	ActualOpenDirection                string   `json:"actual_open_direction"`
+	ActualCloseDirection               string   `json:"actual_close_direction"`
+	ActualIntradayDirection            string   `json:"actual_intraday_direction"`
+	PredictedOpenDirection             string   `json:"predicted_open_direction"`
+	PredictedCloseDirection            string   `json:"predicted_close_direction"`
+	ScenarioPredictedOpenDirection     string   `json:"scenario_predicted_open_direction,omitempty"`
+	ScenarioPredictedCloseDirection    string   `json:"scenario_predicted_close_direction,omitempty"`
+	ScenarioPredictedIntradayDirection string   `json:"scenario_predicted_intraday_direction,omitempty"`
+	OpenExactHit                       bool     `json:"open_exact_hit"`
+	CloseExactHit                      bool     `json:"close_exact_hit"`
+	OpenDirectionHit                   bool     `json:"open_direction_hit"`
+	CloseDirectionHit                  bool     `json:"close_direction_hit"`
+	IntradayDirectionHit               bool     `json:"intraday_direction_hit"`
+	OpenErrorKurus                     int64    `json:"open_error_kurus"`
+	CloseErrorKurus                    int64    `json:"close_error_kurus"`
+	OpenErrorTL                        float64  `json:"open_error_tl"`
+	CloseErrorTL                       float64  `json:"close_error_tl"`
+	OpenErrorPct                       float64  `json:"open_error_pct"`
+	CloseErrorPct                      float64  `json:"close_error_pct"`
+	OpenAbsErrorPct                    float64  `json:"open_abs_error_pct"`
+	CloseAbsErrorPct                   float64  `json:"close_abs_error_pct"`
+	OpenAccuracyPct                    float64  `json:"open_accuracy_pct"`
+	CloseAccuracyPct                   float64  `json:"close_accuracy_pct"`
+	OpenWrongPct                       float64  `json:"open_wrong_pct"`
+	CloseWrongPct                      float64  `json:"close_wrong_pct"`
+	OpenClosenessScorePct              float64  `json:"open_closeness_score_pct"`
+	CloseClosenessScorePct             float64  `json:"close_closeness_score_pct"`
+	LastClose                          float64  `json:"last_close"`
+	Model                              string   `json:"model"`
+	ModelWarnings                      []string `json:"model_warnings,omitempty"`
+	ForecastContext                    string   `json:"forecast_context,omitempty"`
+	ForecastContextWarnings            []string `json:"forecast_context_warnings,omitempty"`
+	TradeSignalAllowed                 bool     `json:"trade_signal_allowed"`
+	DecisionConfidence                 string   `json:"decision_confidence,omitempty"`
+	DirectionModelUnreliable           bool     `json:"direction_model_unreliable,omitempty"`
+	ExpectedIntradayDirection          string   `json:"expected_intraday_direction,omitempty"`
+	VolatilityRegime                   string   `json:"volatility_regime,omitempty"`
+	BacktestCloseMAPE                  float64  `json:"backtest_close_mape,omitempty"`
+	BacktestDirectionAccuracy          float64  `json:"backtest_direction_accuracy,omitempty"`
+	ErrorCauses                        []string `json:"error_causes,omitempty"`
+	AsOfSourcePath                     string   `json:"as_of_source_path,omitempty"`
+	ActualSourcePath                   string   `json:"actual_source_path,omitempty"`
 }
 
 type forecastAuditRangeForecastResult struct {
@@ -451,6 +460,9 @@ func buildForecastAuditRangeReportWithBuilder(ctx context.Context, symbol string
 		closeErrorKurus := actualCloseKurus - scenarioPredictedCloseKurus
 		openErrorPct := forecastAuditAbsErrorPctFromKurus(openErrorKurus, actualOpenKurus)
 		closeErrorPct := forecastAuditAbsErrorPctFromKurus(closeErrorKurus, actualCloseKurus)
+		openDirectionHit := forecastAuditDirectionHit(scenarioPredictedOpen, forecast.LastClose, actual.Open)
+		closeDirectionHit := forecastAuditDirectionHit(scenarioPredictedClose, forecast.LastClose, actual.Close)
+		intradayDirectionHit := forecastAuditIntradayDirectionHit(scenarioPredictedOpen, scenarioPredictedClose, actual.Open, actual.Close)
 		publishable, publishStatus, suppressReason := forecastAuditForecastPublishState(forecast)
 		var publishedOpen, publishedClose *float64
 		predictedOpen := 0.0
@@ -472,71 +484,70 @@ func buildForecastAuditRangeReportWithBuilder(ctx context.Context, symbol string
 			predictedCloseDirection = forecastAuditDirection(scenarioPredictedClose, forecast.LastClose)
 		}
 		row := forecastAuditRangeRow{
-			AsOfDate:                        asOf.TradingDate,
-			ActualDate:                      actual.TradingDate,
-			OfficialResultAvailable:         true,
-			OfficialResultAccuracyPct:       100,
-			ReportDecisionStatus:            "official_actual_verified",
-			ModelDecisionStatus:             forecastAuditModelDecisionStatus(forecast),
-			ActualOpen:                      actual.Open,
-			ActualClose:                     actual.Close,
-			PredictedOpen:                   predictedOpen,
-			PredictedClose:                  predictedClose,
-			ScenarioPredictedOpen:           scenarioPredictedOpen,
-			ScenarioPredictedClose:          scenarioPredictedClose,
-			ModelForecastPublishable:        publishable,
-			ModelForecastPublishStatus:      publishStatus,
-			ModelForecastSuppressionReason:  suppressReason,
-			PublishedPredictedOpen:          publishedOpen,
-			PublishedPredictedClose:         publishedClose,
-			ActualOpenKurus:                 actualOpenKurus,
-			ActualCloseKurus:                actualCloseKurus,
-			PredictedOpenKurus:              predictedOpenKurus,
-			PredictedCloseKurus:             predictedCloseKurus,
-			ScenarioPredictedOpenKurus:      scenarioPredictedOpenKurus,
-			ScenarioPredictedCloseKurus:     scenarioPredictedCloseKurus,
-			ActualOpenDirection:             forecastAuditDirection(actual.Open, forecast.LastClose),
-			ActualCloseDirection:            forecastAuditDirection(actual.Close, forecast.LastClose),
-			PredictedOpenDirection:          predictedOpenDirection,
-			PredictedCloseDirection:         predictedCloseDirection,
-			ScenarioPredictedOpenDirection:  forecastAuditDirection(scenarioPredictedOpen, forecast.LastClose),
-			ScenarioPredictedCloseDirection: forecastAuditDirection(scenarioPredictedClose, forecast.LastClose),
-			OpenExactHit:                    openErrorKurus == 0,
-			CloseExactHit:                   closeErrorKurus == 0,
-			OpenErrorKurus:                  openErrorKurus,
-			CloseErrorKurus:                 closeErrorKurus,
-			OpenErrorTL:                     forecastAuditKurusTL(openErrorKurus),
-			CloseErrorTL:                    forecastAuditKurusTL(closeErrorKurus),
-			OpenErrorPct:                    openErrorPct,
-			CloseErrorPct:                   closeErrorPct,
-			OpenAbsErrorPct:                 openErrorPct,
-			CloseAbsErrorPct:                closeErrorPct,
-			OpenAccuracyPct:                 forecastAuditExactAccuracyPct(openErrorKurus),
-			CloseAccuracyPct:                forecastAuditExactAccuracyPct(closeErrorKurus),
-			OpenWrongPct:                    forecastAuditExactWrongPct(openErrorKurus),
-			CloseWrongPct:                   forecastAuditExactWrongPct(closeErrorKurus),
-			OpenClosenessScorePct:           forecastAuditClosenessScorePct(openErrorPct),
-			CloseClosenessScorePct:          forecastAuditClosenessScorePct(closeErrorPct),
-			LastClose:                       forecast.LastClose,
-			Model:                           forecast.Model,
-			ModelWarnings:                   forecast.Warnings,
-			ForecastContext:                 forecastResult.Context,
-			ForecastContextWarnings:         forecastResult.Warnings,
-			TradeSignalAllowed:              forecast.DecisionForecast.TradeSignalAllowed,
-			DecisionConfidence:              forecast.DecisionForecast.Confidence,
-			DirectionModelUnreliable:        forecast.DirectionModelUnreliable || forecast.DecisionForecast.DirectionModelUnreliable,
-			ExpectedIntradayDirection:       forecast.DecisionForecast.ExpectedIntradayDirection,
-			VolatilityRegime:                forecast.DecisionForecast.VolatilityRegime,
-			BacktestCloseMAPE:               forecast.BacktestMetrics.CloseMAPE,
-			BacktestDirectionAccuracy:       forecast.BacktestMetrics.DirectionAccuracy,
-			AsOfSourcePath:                  asOf.SourcePath,
-			ActualSourcePath:                actual.SourcePath,
-		}
-		if forecast.OpenDirectionHit != nil {
-			row.OpenDirectionHit = *forecast.OpenDirectionHit
-		}
-		if forecast.CloseDirectionHit != nil {
-			row.CloseDirectionHit = *forecast.CloseDirectionHit
+			AsOfDate:                           asOf.TradingDate,
+			ActualDate:                         actual.TradingDate,
+			OfficialResultAvailable:            true,
+			OfficialResultAccuracyPct:          100,
+			ReportDecisionStatus:               "official_actual_verified",
+			ModelDecisionStatus:                forecastAuditModelDecisionStatus(forecast),
+			ActualOpen:                         actual.Open,
+			ActualClose:                        actual.Close,
+			PredictedOpen:                      predictedOpen,
+			PredictedClose:                     predictedClose,
+			ScenarioPredictedOpen:              scenarioPredictedOpen,
+			ScenarioPredictedClose:             scenarioPredictedClose,
+			ModelForecastPublishable:           publishable,
+			ModelForecastPublishStatus:         publishStatus,
+			ModelForecastSuppressionReason:     suppressReason,
+			PublishedPredictedOpen:             publishedOpen,
+			PublishedPredictedClose:            publishedClose,
+			ActualOpenKurus:                    actualOpenKurus,
+			ActualCloseKurus:                   actualCloseKurus,
+			PredictedOpenKurus:                 predictedOpenKurus,
+			PredictedCloseKurus:                predictedCloseKurus,
+			ScenarioPredictedOpenKurus:         scenarioPredictedOpenKurus,
+			ScenarioPredictedCloseKurus:        scenarioPredictedCloseKurus,
+			ActualOpenDirection:                forecastAuditDirection(actual.Open, forecast.LastClose),
+			ActualCloseDirection:               forecastAuditDirection(actual.Close, forecast.LastClose),
+			PredictedOpenDirection:             predictedOpenDirection,
+			PredictedCloseDirection:            predictedCloseDirection,
+			ScenarioPredictedOpenDirection:     forecastAuditDirection(scenarioPredictedOpen, forecast.LastClose),
+			ScenarioPredictedCloseDirection:    forecastAuditDirection(scenarioPredictedClose, forecast.LastClose),
+			ScenarioPredictedIntradayDirection: forecastAuditIntradayDirection(scenarioPredictedOpen, scenarioPredictedClose),
+			ActualIntradayDirection:            forecastAuditIntradayDirection(actual.Open, actual.Close),
+			OpenExactHit:                       openErrorKurus == 0,
+			CloseExactHit:                      closeErrorKurus == 0,
+			OpenDirectionHit:                   openDirectionHit,
+			CloseDirectionHit:                  closeDirectionHit,
+			IntradayDirectionHit:               intradayDirectionHit,
+			OpenErrorKurus:                     openErrorKurus,
+			CloseErrorKurus:                    closeErrorKurus,
+			OpenErrorTL:                        forecastAuditKurusTL(openErrorKurus),
+			CloseErrorTL:                       forecastAuditKurusTL(closeErrorKurus),
+			OpenErrorPct:                       openErrorPct,
+			CloseErrorPct:                      closeErrorPct,
+			OpenAbsErrorPct:                    openErrorPct,
+			CloseAbsErrorPct:                   closeErrorPct,
+			OpenAccuracyPct:                    forecastAuditExactAccuracyPct(openErrorKurus),
+			CloseAccuracyPct:                   forecastAuditExactAccuracyPct(closeErrorKurus),
+			OpenWrongPct:                       forecastAuditExactWrongPct(openErrorKurus),
+			CloseWrongPct:                      forecastAuditExactWrongPct(closeErrorKurus),
+			OpenClosenessScorePct:              forecastAuditClosenessScorePct(openErrorPct),
+			CloseClosenessScorePct:             forecastAuditClosenessScorePct(closeErrorPct),
+			LastClose:                          forecast.LastClose,
+			Model:                              forecast.Model,
+			ModelWarnings:                      forecast.Warnings,
+			ForecastContext:                    forecastResult.Context,
+			ForecastContextWarnings:            forecastResult.Warnings,
+			TradeSignalAllowed:                 forecast.DecisionForecast.TradeSignalAllowed,
+			DecisionConfidence:                 forecast.DecisionForecast.Confidence,
+			DirectionModelUnreliable:           forecast.DirectionModelUnreliable || forecast.DecisionForecast.DirectionModelUnreliable,
+			ExpectedIntradayDirection:          forecast.DecisionForecast.ExpectedIntradayDirection,
+			VolatilityRegime:                   forecast.DecisionForecast.VolatilityRegime,
+			BacktestCloseMAPE:                  forecast.BacktestMetrics.CloseMAPE,
+			BacktestDirectionAccuracy:          forecast.BacktestMetrics.DirectionAccuracy,
+			AsOfSourcePath:                     asOf.SourcePath,
+			ActualSourcePath:                   actual.SourcePath,
 		}
 		row.ErrorCauses = forecastAuditRangeErrorCauses(row)
 		rows = append(rows, row)
@@ -573,6 +584,8 @@ func buildForecastAuditRangeSummary(rows []forecastAuditRangeRow) forecastAuditR
 	closeAccuracy := 0.0
 	openCloseness := 0.0
 	closeCloseness := 0.0
+	backtestCloseMAPE := 0.0
+	backtestDirection := 0.0
 	openWithin050 := 0
 	closeWithin050 := 0
 	openWithin100 := 0
@@ -627,12 +640,17 @@ func buildForecastAuditRangeSummary(rows []forecastAuditRangeRow) forecastAuditR
 		if row.CloseDirectionHit {
 			summary.CloseDirectionHits++
 		}
+		if row.IntradayDirectionHit {
+			summary.IntradayDirectionHits++
+		}
 		openAbs += row.OpenErrorPct
 		closeAbs += row.CloseErrorPct
 		openAccuracy += row.OpenAccuracyPct
 		closeAccuracy += row.CloseAccuracyPct
 		openCloseness += row.OpenClosenessScorePct
 		closeCloseness += row.CloseClosenessScorePct
+		backtestCloseMAPE += row.BacktestCloseMAPE
+		backtestDirection += row.BacktestDirectionAccuracy
 		acc := regimeStats[forecastAuditRangeRegimeKey(row)]
 		if acc == nil {
 			acc = &forecastAuditRegimeAccumulator{
@@ -676,6 +694,8 @@ func buildForecastAuditRangeSummary(rows []forecastAuditRangeRow) forecastAuditR
 		summary.PublishableReportStatus = "publishable_forecast"
 	}
 	summary.TradeAllowedPct = forecastAuditPct(summary.TradeAllowedRows, len(rows))
+	summary.BacktestCloseMAPEAvg = roundAuditMetric(backtestCloseMAPE / float64(len(rows)))
+	summary.BacktestDirectionAvg = roundAuditMetric(backtestDirection / float64(len(rows)))
 	summary.OpenExactHitPct = forecastAuditPct(summary.OpenExactHits, len(rows))
 	summary.CloseExactHitPct = forecastAuditPct(summary.CloseExactHits, len(rows))
 	summary.OpenPriceWrongPct = roundAuditMetric(100 - summary.OpenExactHitPct)
@@ -688,8 +708,10 @@ func buildForecastAuditRangeSummary(rows []forecastAuditRangeRow) forecastAuditR
 	summary.CloseWithin200Pct = forecastAuditPct(closeWithin200, len(rows))
 	summary.OpenDirectionHitPct = forecastAuditPct(summary.OpenDirectionHits, len(rows))
 	summary.CloseDirectionHitPct = forecastAuditPct(summary.CloseDirectionHits, len(rows))
+	summary.IntradayDirectionHitPct = forecastAuditPct(summary.IntradayDirectionHits, len(rows))
 	summary.OpenDirectionWrongPct = roundAuditMetric(100 - summary.OpenDirectionHitPct)
 	summary.CloseDirectionWrongPct = roundAuditMetric(100 - summary.CloseDirectionHitPct)
+	summary.IntradayDirectionWrongPct = roundAuditMetric(100 - summary.IntradayDirectionHitPct)
 	summary.OpenMAEPct = roundAuditMetric(openAbs / float64(len(rows)))
 	summary.CloseMAEPct = roundAuditMetric(closeAbs / float64(len(rows)))
 	summary.OpenErrorPct = summary.OpenMAEPct
@@ -701,6 +723,7 @@ func buildForecastAuditRangeSummary(rows []forecastAuditRangeRow) forecastAuditR
 	summary.ForecastContext = forecastAuditRangeContextSummary(contextCounts)
 	summary.RegimePerformance = forecastAuditRegimePerformanceRows(regimeStats)
 	summary.ForecastQualityGrade, summary.ForecastQualityNotes = forecastAuditRangeQuality(summary)
+	summary.ModelQualityVerdict = forecastAuditRangeModelQualityVerdict(summary)
 	return summary
 }
 
@@ -768,22 +791,43 @@ func forecastAuditRangeQuality(summary forecastAuditRangeSummary) (string, []str
 	case summary.Rows == 0:
 		return "unknown", notes
 	case summary.ModelPublishedRows == 0 || summary.TradeAllowedRows == 0:
-		notes = append(notes, "Model bu aralıkta karar/emir kalitesinde tahmin yayınlamadı; yayın kararı Yayınlanmadı/no-trade olarak verilir.")
+		notes = append(notes, "Model bu aralıkta karar/emir kalitesinde yayın eşiğini geçmedi; yayın kapısı kapalı tutulur.")
 		return "scenario_only", notes
-	case summary.CloseMAEPct <= 1.00 && summary.CloseDirectionHitPct >= 60 && summary.CloseWithin100Pct >= 60:
+	case summary.CloseMAEPct <= 1.00 && summary.IntradayDirectionHitPct >= 60 && summary.CloseWithin100Pct >= 60:
 		notes = append(notes, "Kapanış hatası, yön uyumu ve 1% band isabeti karar destek için güçlü görünüyor.")
 		return "strong", notes
-	case summary.CloseMAEPct <= 1.50 && summary.CloseDirectionHitPct >= 55 && summary.CloseWithin200Pct >= 70:
+	case summary.CloseMAEPct <= 1.50 && summary.IntradayDirectionHitPct >= 55 && summary.CloseWithin200Pct >= 70:
 		notes = append(notes, "Model gate ile kullanılabilir; 1% bandı sınırlıysa pozisyon boyutu ve güven düşük tutulmalı.")
 		return "usable_with_gate", notes
 	default:
 		if summary.CloseMAEPct > 1.50 {
 			notes = append(notes, fmt.Sprintf("Kapanış MAE %.2f%%; fiyat bandı riski yüksek.", summary.CloseMAEPct))
 		}
-		if summary.CloseDirectionHitPct < 55 {
-			notes = append(notes, fmt.Sprintf("Kapanış yön uyumu %.2f%%; yön modeli güvenilir değil.", summary.CloseDirectionHitPct))
+		if summary.IntradayDirectionHitPct < 55 {
+			notes = append(notes, fmt.Sprintf("Gün içi yön uyumu %.2f%%; yön modeli güvenilir değil.", summary.IntradayDirectionHitPct))
 		}
 		return "weak", notes
+	}
+}
+
+func forecastAuditRangeModelQualityVerdict(summary forecastAuditRangeSummary) string {
+	switch {
+	case summary.Rows == 0:
+		return "unknown"
+	case summary.ModelPublishedRows == 0:
+		return "failed_publish_gate"
+	case summary.TradeAllowedRows == 0:
+		return "failed_trade_gate"
+	case summary.BacktestDirectionAvg > 0 && summary.BacktestDirectionAvg < 55:
+		return "failed_rolling_direction_gate"
+	case summary.CloseMAEPct > 2:
+		return "failed_close_mape_gate"
+	case summary.IntradayDirectionHitPct < 55:
+		return "failed_intraday_direction_gate"
+	case summary.CloseDirectionHitPct < 55:
+		return "failed_audit_direction_gate"
+	default:
+		return "passed_audit_gate"
 	}
 }
 
@@ -1238,6 +1282,19 @@ func forecastAuditDirection(price, lastClose float64) string {
 	return forecastpolicy.AuditDirectionFromPrice(price, lastClose)
 }
 
+func forecastAuditIntradayDirection(openPrice, closePrice float64) string {
+	return forecastpolicy.AuditDirectionFromPrice(closePrice, openPrice)
+}
+
+func forecastAuditIntradayDirectionHit(predictedOpen, predictedClose, actualOpen, actualClose float64) bool {
+	predictedDirection, predictedOK := forecastpolicy.PriceDirection(predictedClose, predictedOpen)
+	actualDirection, actualOK := forecastpolicy.PriceDirection(actualClose, actualOpen)
+	if !predictedOK || !actualOK {
+		return false
+	}
+	return predictedDirection == actualDirection
+}
+
 func forecastAuditDirectionHit(predictedClose, lastClose, actualClose float64) bool {
 	hit, ok := forecastpolicy.DirectionHit(predictedClose, actualClose, lastClose)
 	return ok && hit
@@ -1281,13 +1338,6 @@ func forecastAuditExactWrongPct(errorKurus int64) float64 {
 
 func forecastAuditClosenessScorePct(errorPct float64) float64 {
 	return roundAuditMetric(math.Max(0, 100-errorPct))
-}
-
-func forecastAuditPublishedPriceText(value *float64) string {
-	if value == nil || *value <= 0 {
-		return "Yayınlanmadı"
-	}
-	return fmt.Sprintf("%.2f", *value)
 }
 
 func forecastAuditModelDecisionText(status string) string {
@@ -1350,13 +1400,11 @@ func forecastAuditOverallResultText(row forecastAuditRangeRow) string {
 	switch {
 	case row.OpenExactHit && row.CloseExactHit:
 		return "Tam isabet (ikincil exact)"
-	case !row.ModelForecastPublishable || !row.TradeSignalAllowed:
-		return "Yayınlanmadı/no-trade: " + forecastAuditPrimaryOutcomeText(row)
-	case row.CloseErrorPct <= 1.00 && row.CloseDirectionHit:
+	case row.CloseErrorPct <= 1.00 && row.IntradayDirectionHit:
 		return "Band içinde + yön uyumlu"
 	case row.CloseErrorPct <= 1.00:
 		return "Fiyat bandı içinde, yön riski var"
-	case row.CloseDirectionHit:
+	case row.IntradayDirectionHit:
 		return "Yön uyumlu, fiyat bandı dışında"
 	default:
 		return "Band ve yön uyumsuz"
@@ -1365,11 +1413,11 @@ func forecastAuditOverallResultText(row forecastAuditRangeRow) string {
 
 func forecastAuditPrimaryOutcomeText(row forecastAuditRangeRow) string {
 	switch {
-	case row.CloseErrorPct <= 1.00 && row.CloseDirectionHit:
+	case row.CloseErrorPct <= 1.00 && row.IntradayDirectionHit:
 		return "band içinde + yön uyumlu"
 	case row.CloseErrorPct <= 1.00:
 		return "fiyat bandı içinde, yön riski var"
-	case row.CloseDirectionHit:
+	case row.IntradayDirectionHit:
 		return "yön uyumlu, fiyat bandı dışında"
 	default:
 		return "band ve yön uyumsuz"
@@ -1392,9 +1440,9 @@ func forecastAuditBandText(errorPct float64) string {
 func forecastAuditMovementText(direction string) string {
 	switch strings.ToLower(strings.TrimSpace(direction)) {
 	case "yukari", "yükseliş", "up", "positive":
-		return "olumlu"
+		return "yukari"
 	case "asagi", "aşağı", "düşüş", "down", "negative":
-		return "olumsuz"
+		return "asagi"
 	case "yatay", "flat", "neutral":
 		return "yatay"
 	case "":
@@ -1497,16 +1545,51 @@ func forecastAuditDirectionHitText(value bool) string {
 	return "uyumsuz"
 }
 
+func forecastAuditScenarioDetectionText(row forecastAuditRangeRow) string {
+	openText := "açılış tespiti yok"
+	if row.ActualOpen > 0 && row.ScenarioPredictedOpen > 0 {
+		openText = fmt.Sprintf(
+			"açılış resmi %.2f / tahmin %.2f / fark %s TL (%.2f%%, %s)",
+			row.ActualOpen,
+			row.ScenarioPredictedOpen,
+			formatSignedAuditPrice(row.OpenErrorTL),
+			row.OpenErrorPct,
+			forecastAuditBandText(row.OpenErrorPct),
+		)
+	}
+	closeText := "kapanış tespiti yok"
+	if row.ActualClose > 0 && row.ScenarioPredictedClose > 0 {
+		closeText = fmt.Sprintf(
+			"kapanış resmi %.2f / tahmin %.2f / fark %s TL (%.2f%%, %s)",
+			row.ActualClose,
+			row.ScenarioPredictedClose,
+			formatSignedAuditPrice(row.CloseErrorTL),
+			row.CloseErrorPct,
+			forecastAuditBandText(row.CloseErrorPct),
+		)
+	}
+	intradayText := fmt.Sprintf(
+		"gün içi yön tahmin %s, resmi %s, sonuç %s",
+		forecastAuditMovementText(row.ScenarioPredictedIntradayDirection),
+		forecastAuditMovementText(row.ActualIntradayDirection),
+		forecastAuditDirectionTruthText(row.IntradayDirectionHit),
+	)
+	return "tespit: " + intradayText + "; " + openText + "; " + closeText
+}
+
 func forecastAuditRangeErrorCauses(row forecastAuditRangeRow) []string {
 	causes := []string{}
+	if row.OfficialResultAvailable {
+		causes = append(causes, forecastAuditScenarioDetectionText(row))
+	}
 	if !row.ModelForecastPublishable {
-		causes = append(causes, "model fiyatı yayınlanmadı; iç senaryo karar/emir girdisi değil: "+forecastAuditSuppressionReasonText(row))
+		causes = append(causes, "yayın kararı kapalı; kapı sebebi: "+forecastAuditSuppressionReasonText(row))
 	}
 	if !row.TradeSignalAllowed {
-		causes = append(causes, fmt.Sprintf("trade sinyali kapalı: son 20 kapanış MAPE %.2f%%, yön doğruluğu %.2f%%", row.BacktestCloseMAPE, row.BacktestDirectionAccuracy))
+		causes = append(causes, fmt.Sprintf("trade kapısı kapalı: son 20 kapanış MAPE %.2f%%, rolling yön skoru %.2f%%", row.BacktestCloseMAPE, row.BacktestDirectionAccuracy))
 	}
 	if row.DirectionModelUnreliable {
-		causes = append(causes, "yön modeli güvenilmez: son 20 yön doğruluğu %55 eşiğinin altında")
+		causes = append(causes, fmt.Sprintf("rolling yön güven filtresi düşük: son 20 geçmiş yön skoru %.2f%%; günlük yön sonucu yukarıdaki tahmin/resmi karşılaştırmadır", row.BacktestDirectionAccuracy))
 	}
 	if !row.OpenExactHit {
 		causes = append(causes, fmt.Sprintf("model açılış tahmini resmi açılıştan farklı: %+d kuruş", row.OpenErrorKurus))
@@ -1514,11 +1597,8 @@ func forecastAuditRangeErrorCauses(row forecastAuditRangeRow) []string {
 	if !row.CloseExactHit {
 		causes = append(causes, fmt.Sprintf("model kapanış tahmini resmi kapanıştan farklı: %+d kuruş", row.CloseErrorKurus))
 	}
-	if !row.OpenDirectionHit {
-		causes = append(causes, "model açılış yönü resmi yöne uymadı")
-	}
-	if !row.CloseDirectionHit {
-		causes = append(causes, "model kapanış yönü resmi yöne uymadı")
+	if !row.IntradayDirectionHit {
+		causes = append(causes, "model gün içi fiyat yönü resmi gün içi yöne uymadı")
 	}
 	if strings.Contains(strings.ToLower(row.Model), "bist_microstructure_v2") {
 		causes = append(causes, "BIST mikro yapı düzeltmesi tetiklendi")
@@ -1699,7 +1779,7 @@ func forecastAuditPublishedOpenText(row forecastAuditRangeRow) string {
 	if row.ModelForecastPublishable && row.PredictedOpen > 0 {
 		return fmt.Sprintf("%.2f", row.PredictedOpen)
 	}
-	return "Yayınlanmadı"
+	return "Kapalı"
 }
 
 func forecastAuditPublishedCloseText(row forecastAuditRangeRow) string {
@@ -1709,22 +1789,30 @@ func forecastAuditPublishedCloseText(row forecastAuditRangeRow) string {
 	if row.ModelForecastPublishable && row.PredictedClose > 0 {
 		return fmt.Sprintf("%.2f", row.PredictedClose)
 	}
-	return "Yayınlanmadı"
+	return "Kapalı"
 }
 
-func forecastAuditInternalScenarioPairText(row forecastAuditRangeRow) string {
-	openValue := row.ScenarioPredictedOpen
-	closeValue := row.ScenarioPredictedClose
-	if openValue <= 0 {
-		openValue = row.PredictedOpen
+func forecastAuditScenarioOpenText(row forecastAuditRangeRow) string {
+	if row.ScenarioPredictedOpen > 0 {
+		return fmt.Sprintf("%.2f", row.ScenarioPredictedOpen)
 	}
-	if closeValue <= 0 {
-		closeValue = row.PredictedClose
+	return "-"
+}
+
+func forecastAuditScenarioCloseText(row forecastAuditRangeRow) string {
+	if row.ScenarioPredictedClose > 0 {
+		return fmt.Sprintf("%.2f", row.ScenarioPredictedClose)
 	}
-	if openValue <= 0 && closeValue <= 0 {
-		return "-"
-	}
-	return fmt.Sprintf("%.2f / %.2f", openValue, closeValue)
+	return "-"
+}
+
+func forecastAuditDirectionAuditText(row forecastAuditRangeRow) string {
+	return fmt.Sprintf(
+		"gün içi tahmin %s / resmi %s (%s)",
+		forecastAuditMovementText(row.ScenarioPredictedIntradayDirection),
+		forecastAuditMovementText(row.ActualIntradayDirection),
+		forecastAuditDirectionHitText(row.IntradayDirectionHit),
+	)
 }
 
 func forecastAuditSuppressionReasonText(row forecastAuditRangeRow) string {
@@ -1740,9 +1828,9 @@ func forecastAuditSuppressionReasonText(row forecastAuditRangeRow) string {
 
 func forecastAuditPublishStatusText(row forecastAuditRangeRow) string {
 	if row.ModelForecastPublishable {
-		return "Yayınlandı"
+		return "Açık"
 	}
-	return "Yayınlanmadı: " + forecastAuditSuppressionReasonText(row)
+	return "Kapalı: " + forecastAuditSuppressionReasonText(row)
 }
 
 func forecastAuditRangePublishGateNote(summary forecastAuditRangeSummary) string {
@@ -1750,7 +1838,7 @@ func forecastAuditRangePublishGateNote(summary forecastAuditRangeSummary) string
 	case summary.Rows == 0:
 		return ""
 	case summary.ModelPublishedRows == 0:
-		return "Bu aralıkta modelin yayınlanabilir fiyat/yön tahmini yoktur; tüm satırlar publish gate tarafından kapatıldı. İç model senaryosu sadece JSON scenario_* audit alanlarında tutulur, karar/emir girdisi değildir."
+		return "Bu aralıkta nokta fiyat yayın kapısı kapalıdır; denetlenen fiyat ve yukari/asagi yön senaryosu tabloda gösterilir, karar/emir girdisi olarak kullanılmaz."
 	case summary.ModelSuppressedRows > 0:
 		return fmt.Sprintf("%d satır publish gate tarafından kapatıldı; yayınlanan tahmin kolonları yalnızca kapıyı geçen fiyatları gösterir.", summary.ModelSuppressedRows)
 	default:
@@ -1778,11 +1866,12 @@ func limitForecastAuditStrings(values []string, limit int) []string {
 func forecastAuditRangeMarkdown(report forecastAuditRangeReport) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("# %s %s - %s resmi gerceklesen ve model tahmin denetimi\n\n", report.Symbol, report.Summary.FirstActualDate, report.Summary.LastActualDate))
-	b.WriteString(fmt.Sprintf("Birincil kalite: %s | Kapanış 1%% bandı %.2f%% | Kapanış 2%% bandı %.2f%% | Kapanış MAE %.2f%% | Kapanış yön %.2f%% | Trade açık %.2f%%\n\n",
+	b.WriteString(fmt.Sprintf("Birincil kalite: %s | Kapanış 1%% bandı %.2f%% | Kapanış 2%% bandı %.2f%% | Kapanış MAE %.2f%% | Gün içi yön %.2f%% | Kapanış/önceki yön %.2f%% | Trade açık %.2f%%\n\n",
 		report.Summary.ForecastQualityGrade,
 		report.Summary.CloseWithin100Pct,
 		report.Summary.CloseWithin200Pct,
 		report.Summary.CloseMAEPct,
+		report.Summary.IntradayDirectionHitPct,
 		report.Summary.CloseDirectionHitPct,
 		report.Summary.TradeAllowedPct,
 	))
@@ -1802,6 +1891,11 @@ func forecastAuditRangeMarkdown(report forecastAuditRangeReport) string {
 		report.Summary.ForecastContext,
 		report.Summary.FullContextRows,
 		report.Summary.TechnicalFallbackRows,
+	))
+	b.WriteString(fmt.Sprintf("Model kalite sonucu: %s | Rolling kapanış MAPE ort. %.2f%% | Rolling yön skoru ort. %.2f%%\n\n",
+		report.Summary.ModelQualityVerdict,
+		report.Summary.BacktestCloseMAPEAvg,
+		report.Summary.BacktestDirectionAvg,
 	))
 	if note := forecastAuditRangePublishGateNote(report.Summary); note != "" {
 		b.WriteString("> " + note + "\n\n")
@@ -1829,20 +1923,21 @@ func forecastAuditRangeMarkdown(report forecastAuditRangeReport) string {
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString("Evet/Hayır exact alanları ikincildir. Trade Hayır ise sistem al/sat üretmez. Yayınlanan tahmin kolonları publish gate geçmeyen satırlarda fiyat göstermez.\n\n")
-	b.WriteString("| Gün | Açılış | Kapanış | Yayın A | Yayın K | Sonuç | A Band | K Band | K Yön | Trade? | Güven | Kapı | Son 20 Kapanış MAPE | Son 20 Yön |\n")
-	b.WriteString("|---|---:|---:|---|---|---|---|---|---|---|---|---|---:|---:|\n")
+	b.WriteString("Evet/Hayır exact alanları ikincildir. Trade Hayır ise sistem al/sat üretmez. Denetim A/K kolonları modelin test edilen iç senaryosunu resmi sonuçla karşılaştırır; Kapı kolonu bu senaryonun yayınlanabilir olup olmadığını gösterir.\n\n")
+	b.WriteString("| Gün | Açılış | Kapanış | Denetim A | Denetim K | Yön Denetimi | Denetim Sonuç | A Band | K Band | Gün İçi Yön | Trade? | Güven | Kapı | Son 20 Kapanış MAPE | Son 20 Yön |\n")
+	b.WriteString("|---|---:|---:|---:|---:|---|---|---|---|---|---|---|---|---:|---:|\n")
 	for _, row := range report.Rows {
-		b.WriteString(fmt.Sprintf("| %s | %.2f | %.2f | %s | %s | %s | %s | %s | %s | %s | %s | %s | %.2f%% | %.2f%% |\n",
+		b.WriteString(fmt.Sprintf("| %s | %.2f | %.2f | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %.2f%% | %.2f%% |\n",
 			row.ActualDate,
 			row.ActualOpen,
 			row.ActualClose,
-			forecastAuditPublishedOpenText(row),
-			forecastAuditPublishedCloseText(row),
+			forecastAuditScenarioOpenText(row),
+			forecastAuditScenarioCloseText(row),
+			forecastAuditDirectionAuditText(row),
 			forecastAuditOverallResultText(row),
 			forecastAuditBandText(row.OpenErrorPct),
 			forecastAuditBandText(row.CloseErrorPct),
-			forecastAuditDirectionHitText(row.CloseDirectionHit),
+			forecastAuditDirectionHitText(row.IntradayDirectionHit),
 			forecastAuditYesNoText(row.TradeSignalAllowed),
 			emptyForecastAuditValue(row.DecisionConfidence, "-"),
 			forecastAuditPublishStatusText(row),
@@ -1850,8 +1945,8 @@ func forecastAuditRangeMarkdown(report forecastAuditRangeReport) string {
 			row.BacktestDirectionAccuracy,
 		))
 	}
-	b.WriteString("\n## Gün Gün Hata Nedenleri\n\n")
-	b.WriteString("| Gün | Hata nedeni |\n")
+	b.WriteString("\n## Gün Gün Tespit ve Hata Nedenleri\n\n")
+	b.WriteString("| Gün | Tespit / hata nedeni |\n")
 	b.WriteString("|---|---|\n")
 	for _, row := range report.Rows {
 		b.WriteString(fmt.Sprintf("| %s | %s |\n", row.ActualDate, forecastAuditRangeCauseText(row)))
@@ -1865,11 +1960,12 @@ func forecastAuditRangeHTML(report forecastAuditRangeReport) string {
 	b.WriteString(html.EscapeString(report.Symbol + " forecast audit range"))
 	b.WriteString("</title><style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:32px;color:#17202a}table{border-collapse:collapse;width:100%;margin:16px 0}th,td{border:1px solid #d9dee7;padding:8px;text-align:left;vertical-align:top}th{background:#f4f6f8}.muted{color:#667085}.ok{color:#117a37;font-weight:600}.bad{color:#b42318;font-weight:600}</style></head><body>")
 	b.WriteString("<h1>" + html.EscapeString(report.Symbol) + " Son 1 Ay Resmi Gerceklesen ve Model Tahmin Denetimi</h1>")
-	b.WriteString("<p class=\"muted\">" + html.EscapeString(fmt.Sprintf("Birincil kalite: %s | Kapanış 1%% bandı %.2f%% | Kapanış 2%% bandı %.2f%% | Kapanış MAE %.2f%% | Kapanış yön %.2f%% | Trade açık %.2f%%",
+	b.WriteString("<p class=\"muted\">" + html.EscapeString(fmt.Sprintf("Birincil kalite: %s | Kapanış 1%% bandı %.2f%% | Kapanış 2%% bandı %.2f%% | Kapanış MAE %.2f%% | Gün içi yön %.2f%% | Kapanış/önceki yön %.2f%% | Trade açık %.2f%%",
 		report.Summary.ForecastQualityGrade,
 		report.Summary.CloseWithin100Pct,
 		report.Summary.CloseWithin200Pct,
 		report.Summary.CloseMAEPct,
+		report.Summary.IntradayDirectionHitPct,
 		report.Summary.CloseDirectionHitPct,
 		report.Summary.TradeAllowedPct,
 	)) + "</p>")
@@ -1881,6 +1977,11 @@ func forecastAuditRangeHTML(report forecastAuditRangeReport) string {
 		report.Summary.ForecastContext,
 		report.Summary.FullContextRows,
 		report.Summary.TechnicalFallbackRows,
+	)) + "</p>")
+	b.WriteString("<p class=\"muted\">" + html.EscapeString(fmt.Sprintf("Model kalite sonucu: %s | Rolling kapanış MAPE ort. %.2f%% | Rolling yön skoru ort. %.2f%%",
+		report.Summary.ModelQualityVerdict,
+		report.Summary.BacktestCloseMAPEAvg,
+		report.Summary.BacktestDirectionAvg,
 	)) + "</p>")
 	if note := forecastAuditRangePublishGateNote(report.Summary); note != "" {
 		b.WriteString("<p class=\"muted\"><strong>Yayın kapısı:</strong> " + html.EscapeString(note) + "</p>")
@@ -1906,19 +2007,20 @@ func forecastAuditRangeHTML(report forecastAuditRangeReport) string {
 		}
 		b.WriteString("</tbody></table>")
 	}
-	b.WriteString("<p class=\"muted\">Evet/Hayır exact alanları ikincildir. Trade Hayır ise sistem al/sat üretmez. Yayınlanan tahmin kolonları publish gate geçmeyen satırlarda fiyat göstermez.</p>")
-	b.WriteString("<table><thead><tr><th>Gün</th><th>Açılış</th><th>Kapanış</th><th>Yayın A</th><th>Yayın K</th><th>Sonuç</th><th>A Band</th><th>K Band</th><th>K Yön</th><th>Trade?</th><th>Güven</th><th>Kapı</th><th>Son 20 Kapanış MAPE</th><th>Son 20 Yön</th></tr></thead><tbody>")
+	b.WriteString("<p class=\"muted\">Evet/Hayır exact alanları ikincildir. Trade Hayır ise sistem al/sat üretmez. Denetim A/K kolonları modelin test edilen iç senaryosunu resmi sonuçla karşılaştırır; Kapı kolonu bu senaryonun yayınlanabilir olup olmadığını gösterir.</p>")
+	b.WriteString("<table><thead><tr><th>Gün</th><th>Açılış</th><th>Kapanış</th><th>Denetim A</th><th>Denetim K</th><th>Yön Denetimi</th><th>Denetim Sonuç</th><th>A Band</th><th>K Band</th><th>Gün İçi Yön</th><th>Trade?</th><th>Güven</th><th>Kapı</th><th>Son 20 Kapanış MAPE</th><th>Son 20 Yön</th></tr></thead><tbody>")
 	for _, row := range report.Rows {
 		b.WriteString("<tr>")
 		rangeCell(&b, row.ActualDate)
 		rangeCell(&b, fmt.Sprintf("%.2f", row.ActualOpen))
 		rangeCell(&b, fmt.Sprintf("%.2f", row.ActualClose))
-		rangeCell(&b, forecastAuditPublishedOpenText(row))
-		rangeCell(&b, forecastAuditPublishedCloseText(row))
+		rangeCell(&b, forecastAuditScenarioOpenText(row))
+		rangeCell(&b, forecastAuditScenarioCloseText(row))
+		rangeCell(&b, forecastAuditDirectionAuditText(row))
 		rangeCell(&b, forecastAuditOverallResultText(row))
 		rangeCell(&b, forecastAuditBandText(row.OpenErrorPct))
 		rangeCell(&b, forecastAuditBandText(row.CloseErrorPct))
-		rangeCell(&b, forecastAuditDirectionHitText(row.CloseDirectionHit))
+		rangeCell(&b, forecastAuditDirectionHitText(row.IntradayDirectionHit))
 		rangeCell(&b, forecastAuditYesNoText(row.TradeSignalAllowed))
 		rangeCell(&b, emptyForecastAuditValue(row.DecisionConfidence, "-"))
 		rangeCell(&b, forecastAuditPublishStatusText(row))
@@ -1927,7 +2029,7 @@ func forecastAuditRangeHTML(report forecastAuditRangeReport) string {
 		b.WriteString("</tr>")
 	}
 	b.WriteString("</tbody></table>")
-	b.WriteString("<h2>Gün Gün Hata Nedenleri</h2><table><thead><tr><th>Gün</th><th>Hata nedeni</th></tr></thead><tbody>")
+	b.WriteString("<h2>Gün Gün Tespit ve Hata Nedenleri</h2><table><thead><tr><th>Gün</th><th>Tespit / hata nedeni</th></tr></thead><tbody>")
 	for _, row := range report.Rows {
 		b.WriteString("<tr>")
 		rangeCell(&b, row.ActualDate)
