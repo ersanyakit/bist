@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.hissebot.kap.attachments</string>
+	<key>WorkingDirectory</key>
+	<string>/Users/ersanyakit/Desktop/BACKUP HDD/PROJECTS/hisseproj/bot</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/ersanyakit/Desktop/BACKUP HDD/PROJECTS/hisseproj/bot/.cache/hissebot</string>
+		<string>sync</string>
+		<string>kap-attachments</string>
+		<string>-repeat</string>
+		<string>-pass-delay</string>
+		<string>5m</string>
+		<string>-newest-first</string>
+		<string>-delay</string>
+		<string>2s</string>
+		<string>-error-delay</string>
+		<string>5s</string>
+		<string>-retries</string>
+		<string>8</string>
+		<string>-rate-limit-sleep</string>
+		<string>20m</string>
+		<string>-transient-error-sleep</string>
+		<string>1m</string>
+		<string>-transient-error-threshold</string>
+		<string>100</string>
+		<string>-timeout</string>
+		<string>180s</string>
+		<string>-min-free-bytes</string>
+		<string>0</string>
+		<string>-verbose</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HISSEBOT_COMMAND_TIMEOUT</key>
+		<string>720h</string>
+	</dict>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>StandardOutPath</key>
+	<string>/Users/ersanyakit/Desktop/BACKUP HDD/PROJECTS/hisseproj/bot/data/equities/_kap/kap_attachments_sync.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/ersanyakit/Desktop/BACKUP HDD/PROJECTS/hisseproj/bot/data/equities/_kap/kap_attachments_sync.err</string>
+</dict>
+</plist>

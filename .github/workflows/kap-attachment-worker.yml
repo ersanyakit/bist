@@ -1,0 +1,308 @@
+name: KAP Attachment Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration_minutes:
+        description: "Soft runtime cap before commit/push"
+        required: false
+        default: "300"
+      limit_per_ticker:
+        description: "Max new files before each commit for one ticker; 1 commits after each file"
+        required: false
+        default: "1"
+      delay:
+        description: "Delay between KAP requests"
+        required: false
+        default: "2s"
+      request_timeout:
+        description: "Per-request timeout"
+        required: false
+        default: "90s"
+      attachment_from:
+        description: "Optional attachment disclosure start date, YYYY-MM-DD"
+        required: false
+        default: ""
+      attachment_to:
+        description: "Optional attachment disclosure end date, YYYY-MM-DD"
+        required: false
+        default: ""
+      run_disclosures:
+        description: "Refresh KAP disclosure metadata before downloading attachments"
+        type: boolean
+        required: false
+        default: false
+      disclosure_from:
+        description: "Disclosure metadata start date when run_disclosures is true"
+        required: false
+        default: "2010-01-01"
+      disclosure_to:
+        description: "Optional disclosure metadata end date, YYYY-MM-DD"
+        required: false
+        default: ""
+      run_archive:
+        description: "Update document registry after downloading attachments"
+        type: boolean
+        required: false
+        default: false
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kap-attachment-worker-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    env:
+      INPUT_DURATION_MINUTES: ${{ github.event.inputs.duration_minutes || '300' }}
+      INPUT_LIMIT_PER_TICKER: ${{ github.event.inputs.limit_per_ticker || '1' }}
+      INPUT_DELAY: ${{ github.event.inputs.delay || '2s' }}
+      INPUT_REQUEST_TIMEOUT: ${{ github.event.inputs.request_timeout || '90s' }}
+      INPUT_ATTACHMENT_FROM: ${{ github.event.inputs.attachment_from || '' }}
+      INPUT_ATTACHMENT_TO: ${{ github.event.inputs.attachment_to || '' }}
+      INPUT_RUN_DISCLOSURES: ${{ github.event.inputs.run_disclosures || 'false' }}
+      INPUT_DISCLOSURE_FROM: ${{ github.event.inputs.disclosure_from || '2010-01-01' }}
+      INPUT_DISCLOSURE_TO: ${{ github.event.inputs.disclosure_to || '' }}
+      INPUT_RUN_ARCHIVE: ${{ github.event.inputs.run_archive || 'false' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Configure git
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --ff-only origin "$GITHUB_REF_NAME"
+
+      - name: Normalize inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          duration="${INPUT_DURATION_MINUTES:-300}"
+          limit_per_ticker="${INPUT_LIMIT_PER_TICKER:-1}"
+
+          for pair in \
+            "duration_minutes:$duration" \
+            "limit_per_ticker:$limit_per_ticker"; do
+            name="${pair%%:*}"
+            value="${pair#*:}"
+            if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+              echo "$name must be a non-negative integer, got: $value" >&2
+              exit 2
+            fi
+          done
+          if [[ "$duration" -lt 1 ]]; then
+            echo "duration_minutes must be at least 1" >&2
+            exit 2
+          fi
+          if [[ "$duration" -gt 330 ]]; then
+            duration=330
+          fi
+
+          {
+            echo "HISSEBOT_COMMAND_TIMEOUT=720h"
+            echo "LIMIT_PER_TICKER=$limit_per_ticker"
+            echo "MAX_RUNTIME_SECONDS=$((duration * 60))"
+            echo "DELAY=${INPUT_DELAY:-2s}"
+            echo "TIMEOUT=${INPUT_REQUEST_TIMEOUT:-90s}"
+            echo "FROM=${INPUT_ATTACHMENT_FROM:-}"
+            echo "TO=${INPUT_ATTACHMENT_TO:-}"
+            echo "STOP_EXISTING=0"
+            echo "BUILD_BINARY=1"
+            echo "OUT=$GITHUB_WORKSPACE/data/equities/_kap"
+            echo "BIN=$GITHUB_WORKSPACE/.cache/hissebot"
+            echo "LOG_DIR=$RUNNER_TEMP/kap-worker-logs"
+            echo "MIN_FREE_BYTES=0"
+            echo "RETRIES=3"
+            echo "ERROR_DELAY=15s"
+            echo "RATE_LIMIT_SLEEP=20m"
+            echo "TRANSIENT_ERROR_SLEEP=20m"
+            echo "TRANSIENT_ERROR_THRESHOLD=5"
+          } >> "$GITHUB_ENV"
+
+      - name: Refresh KAP disclosures
+        if: ${{ env.INPUT_RUN_DISCLOSURES == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            sync kap-disclosures
+            -from "${INPUT_DISCLOSURE_FROM:-2010-01-01}"
+            -chunk-days 90
+            -member-types IGS
+            -disclosure-types all
+          )
+          if [[ -n "${INPUT_DISCLOSURE_TO:-}" ]]; then
+            args+=(-to "$INPUT_DISCLOSURE_TO")
+          fi
+          go run ./cmd/hissebot "${args[@]}"
+
+      - name: Commit and push disclosure metadata
+        if: ${{ env.INPUT_RUN_DISCLOSURES == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git add -A data/equities data/seed
+          if git diff --cached --quiet; then
+            echo "No disclosure metadata changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore(data): sync KAP disclosures [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+
+      - name: Download, commit and push KAP attachments
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$LOG_DIR" "$OUT" "$(dirname "$BIN")"
+          go build -o "$BIN" ./cmd/hissebot
+
+          mapfile -t tickers < <(
+            find "$GITHUB_WORKSPACE/data/equities" -mindepth 2 -maxdepth 2 -name kap_disclosures.json -type f \
+              | sed -E "s#^$GITHUB_WORKSPACE/data/equities/([^/]+)/kap_disclosures\\.json#\\1#" \
+              | sort -u
+          )
+
+          if [[ "${#tickers[@]}" -eq 0 ]]; then
+            echo "No tickers found in data/equities/*/kap_disclosures.json" >&2
+            exit 1
+          fi
+
+          deadline_epoch="$(($(date +%s) + MAX_RUNTIME_SECONDS))"
+
+          deadline_reached() {
+            [[ "$(date +%s)" -ge "$deadline_epoch" ]]
+          }
+
+          commit_and_push() {
+            local ticker="$1"
+            local attempt
+
+            git add -A data/equities data/seed
+            if git diff --cached --quiet; then
+              return 1
+            fi
+
+            git commit -m "chore(data): sync KAP attachments ${ticker} [skip ci]"
+            for attempt in 1 2 3 4 5; do
+              if git pull --rebase origin "$GITHUB_REF_NAME" && git push origin "HEAD:$GITHUB_REF_NAME"; then
+                return 0
+              fi
+              git rebase --abort >/dev/null 2>&1 || true
+              sleep "$((attempt * 10))"
+            done
+            return 2
+          }
+
+          pass=1
+          while ! deadline_reached; do
+            changed_this_pass=0
+            echo "KAP attachment pass $pass started; tickers=${#tickers[@]} limit_per_ticker=$LIMIT_PER_TICKER"
+
+            for ticker in "${tickers[@]}"; do
+              if deadline_reached; then
+                echo "Runtime cap reached before ticker=$ticker"
+                break
+              fi
+
+              args=(
+                sync kap-attachments
+                -out "$OUT"
+                -ticker "$ticker"
+                -newest-first
+                -delay "$DELAY"
+                -error-delay "$ERROR_DELAY"
+                -retries "$RETRIES"
+                -rate-limit-sleep "$RATE_LIMIT_SLEEP"
+                -transient-error-sleep "$TRANSIENT_ERROR_SLEEP"
+                -transient-error-threshold "$TRANSIENT_ERROR_THRESHOLD"
+                -timeout "$TIMEOUT"
+                -min-free-bytes "$MIN_FREE_BYTES"
+              )
+              if [[ "$LIMIT_PER_TICKER" != "0" ]]; then
+                args+=(-limit "$LIMIT_PER_TICKER")
+              fi
+              if [[ -n "${FROM:-}" ]]; then
+                args+=(-from "$FROM")
+              fi
+              if [[ -n "${TO:-}" ]]; then
+                args+=(-to "$TO")
+              fi
+
+              set +e
+              "$BIN" "${args[@]}" 2>&1 | tee "$LOG_DIR/${ticker}.log"
+              status="${PIPESTATUS[0]}"
+              set -e
+
+              if commit_and_push "$ticker"; then
+                changed_this_pass=1
+                echo "Committed and pushed KAP changes for ticker=$ticker"
+              else
+                commit_status="$?"
+                if [[ "$commit_status" -eq 2 ]]; then
+                  echo "Commit was created but push failed for ticker=$ticker" >&2
+                  exit 1
+                fi
+              fi
+
+              if [[ "$status" -ne 0 ]]; then
+                echo "KAP attachment sync failed for ticker=$ticker status=$status; continuing" >&2
+              fi
+            done
+
+            if [[ "$changed_this_pass" -eq 0 ]]; then
+              echo "No KAP attachment changes in pass $pass; stopping."
+              break
+            fi
+            pass="$((pass + 1))"
+          done
+
+      - name: Update document archive
+        if: ${{ always() && env.INPUT_RUN_ARCHIVE == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run ./cmd/hissebot sync kap-document-archive
+
+      - name: Commit and push remaining KAP data
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git add -A data/equities data/seed
+
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(data): sync KAP attachments [skip ci]"
+          fi
+
+          git fetch origin "$GITHUB_REF_NAME"
+          ahead_count="$(git rev-list --count "origin/$GITHUB_REF_NAME..HEAD")"
+          if [[ "$ahead_count" -eq 0 ]]; then
+            echo "No remaining KAP data changes to push."
+            exit 0
+          fi
+
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
