@@ -310,6 +310,14 @@ func fetchSocketChart(ctx context.Context, ticker string, interval string, bars 
 	}
 	defer conn.Close()
 
+	symbolPayload, err := jsonString(map[string]any{
+		"symbol":     symbol,
+		"adjustment": "splits",
+		"session":    "regular",
+	})
+	if err != nil {
+		return ChartFile{}, fmt.Errorf("tradingview resolve symbol payload: %w", err)
+	}
 	messages := []string{
 		tvMessage("set_auth_token", []any{"unauthorized_user_token"}),
 		tvMessage("chart_create_session", []any{session, ""}),
@@ -317,11 +325,7 @@ func fetchSocketChart(ctx context.Context, ticker string, interval string, bars 
 		tvMessage("resolve_symbol", []any{
 			session,
 			symbolID,
-			"=" + mustJSON(map[string]any{
-				"symbol":     symbol,
-				"adjustment": "splits",
-				"session":    "regular",
-			}),
+			"=" + symbolPayload,
 		}),
 		tvMessage("create_series", []any{session, seriesID, seriesID, symbolID, chartResolution(interval), initialBars}),
 	}
@@ -681,12 +685,12 @@ func tvPayloads(raw string) []string {
 	return payloads
 }
 
-func mustJSON(value any) string {
+func jsonString(value any) (string, error) {
 	bytes, err := json.Marshal(value)
 	if err != nil {
-		panic(err)
+		return "", err
 	}
-	return string(bytes)
+	return string(bytes), nil
 }
 
 func randomHex(size int) string {

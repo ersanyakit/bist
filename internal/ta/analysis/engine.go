@@ -902,7 +902,7 @@ func (e *Engine) analyzeTimeframe(ctx context.Context, instrument ohlcv.Instrume
 	plan = applyTechnicalSignalGateToTradePlan(plan, professionalReport.Technical.SignalGate)
 	nsf := NextSessionForecast{}
 	if timeframe == "1D" {
-		nsf = computeNextSessionForecastWithTechnicalContext(candles, snapshot, bias, instrument.AssetType, allPatterns, sr, plan, instrument.Symbol)
+		nsf = computeNextSessionForecastWithTechnicalContext(ctx, candles, snapshot, bias, instrument.AssetType, allPatterns, sr, plan, instrument.Symbol)
 	}
 	tf := TimeframeAnalysis{
 		Timeframe:           timeframe,
@@ -1637,6 +1637,10 @@ func ComputeNextSessionForecast(candles []ohlcv.Candle, snapshot ohlcv.Indicator
 }
 
 func ComputeNextSessionForecastFromCandles(candles []ohlcv.Candle, assetType string) (NextSessionForecast, error) {
+	return ComputeNextSessionForecastFromCandlesContext(context.TODO(), candles, assetType)
+}
+
+func ComputeNextSessionForecastFromCandlesContext(ctx context.Context, candles []ohlcv.Candle, assetType string) (NextSessionForecast, error) {
 	if len(candles) == 0 {
 		return NextSessionForecast{}, fmt.Errorf("next-session forecast requires candles: %w", indicators.ErrInsufficientData)
 	}
@@ -1664,7 +1668,7 @@ func ComputeNextSessionForecastFromCandles(candles []ohlcv.Candle, assetType str
 	if err != nil {
 		return NextSessionForecast{}, fmt.Errorf("build trade plan for next-session forecast: %w", err)
 	}
-	return computeNextSessionForecastWithTechnicalContext(candles, snapshot, bias, assetType, detectedPatterns, sr, plan, ""), nil
+	return computeNextSessionForecastWithTechnicalContext(ctx, candles, snapshot, bias, assetType, detectedPatterns, sr, plan, ""), nil
 }
 
 func AttachActualToNextSessionForecast(f NextSessionForecast, actualOpen, actualClose float64, source, sourcePath string) NextSessionForecast {
@@ -2539,7 +2543,7 @@ func computeNextSessionForecast(candles []ohlcv.Candle, snapshot ohlcv.Indicator
 	return ComputeNextSessionForecast(candles, snapshot, bias, assetType)
 }
 
-func computeNextSessionForecastWithTechnicalContext(candles []ohlcv.Candle, snapshot ohlcv.IndicatorSnapshot, bias, assetType string, pats []ohlcv.PatternResult, sr supportresistance.Result, plan ohlcv.TradePlan, symbol string) NextSessionForecast {
+func computeNextSessionForecastWithTechnicalContext(ctx context.Context, candles []ohlcv.Candle, snapshot ohlcv.IndicatorSnapshot, bias, assetType string, pats []ohlcv.PatternResult, sr supportresistance.Result, plan ohlcv.TradePlan, symbol string) NextSessionForecast {
 	forecast := computeNextSessionForecastModel(candles, snapshot, bias, assetType, true)
 	return applyNextSessionTechnicalDecisionContext(forecast, candles, snapshot, pats, sr, plan, assetType, symbol)
 }
@@ -2561,9 +2565,9 @@ func nextSessionForecastFastPatterns(candles []ohlcv.Candle, snapshot ohlcv.Indi
 	return out, nil
 }
 
-func nextSessionForecastPatterns(candles []ohlcv.Candle, snapshot ohlcv.IndicatorSnapshot, sr supportresistance.Result) ([]ohlcv.PatternResult, error) {
+func nextSessionForecastPatterns(ctx context.Context, candles []ohlcv.Candle, snapshot ohlcv.IndicatorSnapshot, sr supportresistance.Result) ([]ohlcv.PatternResult, error) {
 	scanCandles, offset := nextSessionPatternScanWindow(candles)
-	scanOutput, err := patterns.Scan(context.Background(), patterns.ScannerInput{
+	scanOutput, err := patterns.Scan(ctx, patterns.ScannerInput{
 		Timeframe:         "1D",
 		Candles:           scanCandles,
 		Indicators:        snapshot,
