@@ -38,50 +38,50 @@ const (
 )
 
 type Options struct {
-	Symbols              []string
-	All                  bool
-	Limit                int
-	Mode                 string
-	BISTDBPath           string
-	EquitiesDir          string
-	SectorFile           string
-	MinDailyBars         int
-	MaxPriceStaleness    time.Duration
-	MinFinancialFacts    int
-	MinCanonicalFields   int
-	MinCanonicalPeriods  int
-	MinPeers             int
-	Now                  func() time.Time
+	Symbols             []string
+	All                 bool
+	Limit               int
+	Mode                string
+	BISTDBPath          string
+	EquitiesDir         string
+	SectorFile          string
+	MinDailyBars        int
+	MaxPriceStaleness   time.Duration
+	MinFinancialFacts   int
+	MinCanonicalFields  int
+	MinCanonicalPeriods int
+	MinPeers            int
+	Now                 func() time.Time
 }
 
 type Report struct {
-	GeneratedAt     time.Time         `json:"generated_at"`
-	Mode            string            `json:"mode"`
-	Status          string            `json:"status"`
-	Score           float64           `json:"score"`
-	Symbols         int               `json:"symbols"`
-	DecisionReady   int               `json:"decision_ready"`
-	Limited         int               `json:"limited"`
-	Blocked         int               `json:"blocked"`
-	IssueCounts     map[string]int    `json:"issue_counts,omitempty"`
-	Results         []SymbolReadiness `json:"results"`
+	GeneratedAt   time.Time         `json:"generated_at"`
+	Mode          string            `json:"mode"`
+	Status        string            `json:"status"`
+	Score         float64           `json:"score"`
+	Symbols       int               `json:"symbols"`
+	DecisionReady int               `json:"decision_ready"`
+	Limited       int               `json:"limited"`
+	Blocked       int               `json:"blocked"`
+	IssueCounts   map[string]int    `json:"issue_counts,omitempty"`
+	Results       []SymbolReadiness `json:"results"`
 }
 
 type SymbolReadiness struct {
-	Symbol             string                       `json:"symbol"`
-	Status             string                       `json:"status"`
-	Score              float64                      `json:"score"`
-	Blockers           []string                     `json:"blockers,omitempty"`
-	Warnings           []string                     `json:"warnings,omitempty"`
-	Checks             []Check                      `json:"checks"`
-	Price              PriceCoverage               `json:"price"`
-	KAPExtraction      KAPExtractionCoverage        `json:"kap_extraction"`
-	Financials         FinancialCoverage           `json:"financials"`
-	Sector             SectorCoverage              `json:"sector"`
-	CorporateActions   CorporateActionCoverage     `json:"corporate_actions"`
-	Macro              MacroCoverage               `json:"macro"`
-	RecommendedActions []string                     `json:"recommended_actions,omitempty"`
-	Metadata           map[string]any              `json:"metadata,omitempty"`
+	Symbol             string                  `json:"symbol"`
+	Status             string                  `json:"status"`
+	Score              float64                 `json:"score"`
+	Blockers           []string                `json:"blockers,omitempty"`
+	Warnings           []string                `json:"warnings,omitempty"`
+	Checks             []Check                 `json:"checks"`
+	Price              PriceCoverage           `json:"price"`
+	KAPExtraction      KAPExtractionCoverage   `json:"kap_extraction"`
+	Financials         FinancialCoverage       `json:"financials"`
+	Sector             SectorCoverage          `json:"sector"`
+	CorporateActions   CorporateActionCoverage `json:"corporate_actions"`
+	Macro              MacroCoverage           `json:"macro"`
+	RecommendedActions []string                `json:"recommended_actions,omitempty"`
+	Metadata           map[string]any          `json:"metadata,omitempty"`
 }
 
 type Check struct {
@@ -129,15 +129,15 @@ type FinancialCoverage struct {
 }
 
 type SectorCoverage struct {
-	Status      string   `json:"status"`
-	Sector      string   `json:"sector,omitempty"`
-	Industry    string   `json:"industry,omitempty"`
-	PeerGroup   string   `json:"peer_group,omitempty"`
-	PeerCount   int      `json:"peer_count"`
-	Source      string   `json:"source,omitempty"`
-	Confidence  float64  `json:"confidence,omitempty"`
-	Evidence    []string `json:"evidence,omitempty"`
-	Warnings    []string `json:"warnings,omitempty"`
+	Status     string   `json:"status"`
+	Sector     string   `json:"sector,omitempty"`
+	Industry   string   `json:"industry,omitempty"`
+	PeerGroup  string   `json:"peer_group,omitempty"`
+	PeerCount  int      `json:"peer_count"`
+	Source     string   `json:"source,omitempty"`
+	Confidence float64  `json:"confidence,omitempty"`
+	Evidence   []string `json:"evidence,omitempty"`
+	Warnings   []string `json:"warnings,omitempty"`
 }
 
 type CorporateActionCoverage struct {
@@ -154,8 +154,8 @@ type CorporateActionCoverage struct {
 }
 
 type MacroCoverage struct {
-	Status string   `json:"status"`
-	Files  []string `json:"files,omitempty"`
+	Status  string   `json:"status"`
+	Files   []string `json:"files,omitempty"`
 	Missing []string `json:"missing,omitempty"`
 }
 
@@ -163,8 +163,8 @@ type priceSnapshot struct {
 	rows              int
 	analysisReadyRows int
 	adjustedRows      int
-	firstDate          string
-	latestDate         string
+	firstDate         string
+	latestDate        string
 }
 
 func Run(ctx context.Context, cfg config.Config, store *storage.EquityStore, opts Options) (Report, error) {

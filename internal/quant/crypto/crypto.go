@@ -5,18 +5,18 @@ import "math"
 const AnnualizationDays = 365.0
 
 type Input struct {
-	OnChainAvailable         bool
-	DerivativesAvailable     bool
-	ExchangeFlowAvailable    bool
-	NewsSentimentAvailable   bool
-	ContextCoverageScore      float64
-	BenchmarkAvailable       bool
-	Beta60                   float64
-	RelativeStrength60Pct    float64
-	Return60Pct              float64
-	AnnualizedVolatilityPct  float64
-	HistoricalVaR95Pct       float64
-	MaxDrawdownLossPct       float64
+	OnChainAvailable        bool
+	DerivativesAvailable    bool
+	ExchangeFlowAvailable   bool
+	NewsSentimentAvailable  bool
+	ContextCoverageScore    float64
+	BenchmarkAvailable      bool
+	Beta60                  float64
+	RelativeStrength60Pct   float64
+	Return60Pct             float64
+	AnnualizedVolatilityPct float64
+	HistoricalVaR95Pct      float64
+	MaxDrawdownLossPct      float64
 }
 
 type Report struct {

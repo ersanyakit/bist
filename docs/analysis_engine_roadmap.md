@@ -18,8 +18,34 @@ Mevcut ciktilar:
 - `analiz.json`: Turkce kullanici cikti kontrati.
 - `quant_risk_report.json`: quant risk/getiri raporu.
 - `stat_economic_report.json`: istatistiksel/ekonomik tutarlilik raporu.
+- `advanced_analysis`: `analysis.json` icinde Faz 0-10 bilesik analiz kontrati.
 - `decision_support_standard.json`: karar kapilari ve minimum gereksinimler.
 - `risk_matrix.json`: temel, teknik, quant ve stat/economic risk kayitlari.
+
+## Uygulama Durumu
+
+2026-06-25 itibariyla Faz 0-10 icin engine entegrasyon katmani eklendi:
+
+- `advanced_analysis` top-level kontrati uretildi.
+- `analiz.json` icine `gelismis_faz_analizi` ozeti eklendi.
+- `decision_support_standard.json` icine `advanced_analysis_production_gate` kapisi eklendi.
+- `risk_matrix.json` advanced warnings ve human-review nedenlerini tasir.
+- `rapor_veri_manifesti.json` yeni audit artifact dosyalarini listeler.
+
+Yeni artifact dosyalari:
+
+- Faz 1: `data_quality_report.json`, `price_reconciliation_report.json`, `corporate_action_audit.json`, `point_in_time_lineage.json`
+- Faz 2: `factor_model_report.json`, `relative_strength_report.json`, `active_return_decomposition.json`
+- Faz 3: `volatility_regime_report.json`, `tail_risk_report.json`, `stress_test_report.json`
+- Faz 4: `macro_sensitivity_report.json`, `macro_regime_report.json`, `macro_scenario_stress.json`
+- Faz 5: `financial_quality_scorecard.json`, `accounting_risk_report.json`, `sector_specific_financial_report.json`
+- Faz 6: `valuation_ensemble_report.json`, `valuation_sensitivity_table.json`, `fair_value_bridge.json`
+- Faz 7: `event_study_report.json`, `kap_materiality_score.json`, `news_event_impact_report.json`
+- Faz 8: `forecast_validation_report.json`, `model_monitoring_report.json`, `champion_challenger_report.json`
+- Faz 9: `liquidity_impact_report.json`, `portfolio_fit_report.json`, `position_capacity_report.json`
+- Faz 10: `decision_audit_trail.json`, `model_registry_snapshot.json`, `production_readiness_report.json`, `human_review_queue.json`
+
+Not: Bu entegrasyon veri yokken tahmin uydurmaz; eksik kaynaklari `missing_inputs`, `warnings`, `human_review_queue` ve gate status alanlariyla sinirlar. Daha ileri dogruluk icin lisansli order book, resmi point-in-time makro serileri ve normalize finansal tablo kapsami genisletildikce ayni kontratlar daha yuksek guvenle dolar.
 
 ## Kalan Ana Eksikler
 
@@ -421,4 +447,3 @@ Bir faz tamamlandi sayilmaz; su dort kosul ayni anda gecmelidir:
 - KAP PDF/XBRL normalizasyonu eksikse finansal kalite skorunda sektor bazli yanilma olur.
 - Makro veriler point-in-time degilse backtest sonucu gercekci olmaz.
 - Faz 6 degerleme modelleri veri kalitesi duzelmeden uygulanirsa yanlis hedef fiyat guveni yaratir.
-

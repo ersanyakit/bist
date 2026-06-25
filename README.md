@@ -32,6 +32,7 @@ go run ./cmd/hissebot sync kap-extract -ticker ASELS
 	go run ./cmd/hissebot analyze -symbol ASELS -provider bistdb -timeframes 1D,1W,1M
 go run ./cmd/hissebot analyze -all
 go run ./cmd/hissebot audit enterprise -mode research
+go run ./cmd/hissebot audit analysis-readiness -symbol ASELS
 go run ./tools/analysis_report_audit -path data/equities/ASELS/analysis/2026-06-13/analysis.json -spot-only=true
 go run ./cmd/hissebot migrate layout
 go run ./cmd/hissebot serve comments
@@ -284,6 +285,15 @@ go run ./cmd/hissebot sync bist-bulletin-db -from-year 2026 -to-year 2026
 ```
 
 Komut eksik `thbYYYYAAGGS.zip` dosyalarını `https://www.borsaistanbul.com/data/thb/YYYY/AA/` altından indirir, `data/bist/unprocessed/bulten_verileri/` içine açar ve `data/bist/bist_ohlcv.sqlite` indeksine işler. BIST tatil/gün sonu henüz yayımlanmamış bültenler `missing` olarak işaretlenir; `-retry-missing-after` süresi dolunca tekrar denenir.
+
+Hisse bazlı karar raporu üretmeden önce fiyat, KAP, canonical finansal fact, sektör/peer, kurumsal aksiyon ve makro bağlam yeterliliğini tek raporda görmek için:
+
+```bash
+go run ./cmd/hissebot audit analysis-readiness -symbol ASELS
+go run ./cmd/hissebot audit analysis-readiness -all -limit 100 -mode production -out data/audit/analysis_readiness.json
+```
+
+Rapor `decision_ready`, `limited` veya `blocked` döner. Resmi BIST kapanışı veya KAP/canonical finansal veri eksikse hisse `blocked`; kurumsal aksiyon düzeltmesi, peer grubu veya makro bağlam eksikse `limited` kabul edilir ve `recommended_actions` alanında tamamlanacak komut/iş listesi verilir.
 
 KAP bildirim metadatası ve ek dosyaları büyük hacimlidir. Önce tüm bildirim kategorilerini çekin, sonra ekleri resume destekli indirin:
 

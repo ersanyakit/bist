@@ -19,8 +19,8 @@ import (
 	"hissebot/internal/enterprise"
 	"hissebot/internal/extraction"
 	"hissebot/internal/repositories/filedocuments"
-	"hissebot/internal/services/bistbulletindb"
 	"hissebot/internal/services/analysisreadiness"
+	"hissebot/internal/services/bistbulletindb"
 	"hissebot/internal/services/classification"
 	"hissebot/internal/services/comments"
 	"hissebot/internal/services/financials"
@@ -1072,6 +1072,7 @@ Commands:
   serve reports                    Tek tus PDF/HTML analiz raporu ureten HTTP endpoint'i
   serve api                        Fiber v3 JSON API; sektor endpointleri dahil
   audit enterprise [-mode production] Kurumsal readiness gate kontrollerini JSON olarak calistirir
+  audit analysis-readiness          Hisse bazli fiyat/KAP/finansal/peer/makro karar hazirligi raporu uretir
   audit universe                    Listed/delisted survivorship universe kapsam kontrolunu calistirir
 
 Useful env:

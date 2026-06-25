@@ -289,16 +289,23 @@ func quantDecision(assetType string, ret QuantReturnMetrics, risk QuantRiskMetri
 		RiskScore:   roundQuant(riskScore),
 		ReturnScore: roundQuant(returnScore),
 	}
+	acceptableScore := quantDecisionScoreLimit(assetType)
+	acceptableRiskScore := quantDecisionRiskScoreLimit(assetType)
+	failRiskScore := quantDecisionFailRiskScoreLimit(assetType)
+	strongRiskScore := 65.0
+	if ohlcv.IsCryptoAssetType(assetType) {
+		strongRiskScore = 60
+	}
 	switch {
-	case score >= 75 && riskScore >= 65:
+	case score >= 75 && riskScore >= strongRiskScore:
 		decision.Label = "quant_strong"
 		decision.Suitability = "portfoye_uygun"
 		decision.Passes = append(decision.Passes, "quant risk/getiri profili güçlü")
-	case score >= 58 && riskScore >= 50:
+	case score >= acceptableScore && riskScore >= acceptableRiskScore:
 		decision.Label = "quant_acceptable"
 		decision.Suitability = "sinirli_pozisyon_uygun"
 		decision.Passes = append(decision.Passes, "quant profil izlenebilir seviyede")
-	case riskScore < 40:
+	case riskScore < failRiskScore:
 		decision.Label = "quant_high_risk"
 		decision.Suitability = "risk_limiti_gerekli"
 		decision.Blockers = append(decision.Blockers, "quant risk skoru düşük")

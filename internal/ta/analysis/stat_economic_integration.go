@@ -305,6 +305,16 @@ func buildStatFactorModel(result SymbolAnalysis) StatisticalFactorModel {
 	return out
 }
 
+func statLowVolatilityScore(assetType string, annualizedVolPct float64) float64 {
+	baseline := 18.0
+	penaltySlope := 1.5
+	if ohlcv.IsCryptoAssetType(assetType) {
+		baseline = 65
+		penaltySlope = 0.55
+	}
+	return core.Clamp(100-(annualizedVolPct-baseline)*penaltySlope, 0, 100)
+}
+
 func buildStatRegimeModel(closes, returns []float64, result SymbolAnalysis) StatisticalRegimeModel {
 	annualizationDays := quantAnnualizationDays(result.AssetType)
 	ewmaVol := ewmaVolatility(returns, 0.94) * math.Sqrt(annualizationDays) * 100

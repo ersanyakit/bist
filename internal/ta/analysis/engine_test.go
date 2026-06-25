@@ -170,12 +170,19 @@ func TestBuildQuantAnalysisComputesRiskReturnAndBenchmark(t *testing.T) {
 				Alpha60:            0.08,
 				Correlation60:      0.64,
 			},
+			DataGovernance: professional.FinancialDataGovernance{
+				ProductionReady: true,
+			},
 		},
+		PriceQuality: &pricequality.SymbolReport{ReadyForVerifiedClose: true},
 	}
 
 	got := BuildQuantAnalysis(result)
 	if !got.Computed || got.SampleCount != 79 {
 		t.Fatalf("quant not computed: %+v", got)
+	}
+	if got.MarketClock != "exchange_sessions" || got.AnnualizationDays != 252 {
+		t.Fatalf("unexpected equity quant clock: %+v", got)
 	}
 	if got.Return.Return20DPct == 0 || got.Risk.HistoricalVaR95Pct <= 0 || got.Risk.SharpeRatio == 0 {
 		t.Fatalf("quant metrics missing: return=%+v risk=%+v", got.Return, got.Risk)
@@ -183,8 +190,61 @@ func TestBuildQuantAnalysisComputesRiskReturnAndBenchmark(t *testing.T) {
 	if !got.Benchmark.Available || got.Benchmark.Beta60 != 0.92 || got.Benchmark.RelativeStrength60Pct != 4 {
 		t.Fatalf("benchmark metrics missing: %+v", got.Benchmark)
 	}
+	if got.EquityProfile == nil || got.EquityProfile.Status != "pass" || got.CryptoProfile != nil {
+		t.Fatalf("unexpected equity/crypto profile: equity=%+v crypto=%+v", got.EquityProfile, got.CryptoProfile)
+	}
 	if got.Decision.Score <= 0 || got.Decision.Summary == "" {
 		t.Fatalf("decision missing: %+v", got.Decision)
+	}
+}
+
+func TestBuildQuantAnalysisUsesCryptoClockAndProfile(t *testing.T) {
+	candles := make([]ohlcv.Candle, 0, 120)
+	price := 50_000.0
+	for i := 0; i < 120; i++ {
+		ret := 0.0015 + 0.010*math.Sin(float64(i)/6)
+		price *= 1 + ret
+		candles = append(candles, ohlcv.Candle{
+			Time:   time.Date(2026, 1, 1+i, 0, 0, 0, 0, time.UTC),
+			Open:   price * 0.998,
+			High:   price * 1.015,
+			Low:    price * 0.985,
+			Close:  price,
+			Volume: 8_000,
+		})
+	}
+	result := SymbolAnalysis{
+		Symbol:    "BTCUSDT",
+		AssetType: ohlcv.AssetTypeCrypto,
+		Timeframes: map[string]TimeframeAnalysis{
+			"1D": {Timeframe: "1D", Candles: candles, LastClose: price},
+		},
+		Professional: professional.Report{
+			Market: professional.MarketContext{
+				BenchmarkSymbol:    "BTC",
+				BenchmarkAvailable: true,
+				RelativeStrength60: 0.06,
+				Beta60:             1.05,
+			},
+			Coverage: professional.CoverageReport{Score: 85},
+			CryptoContext: professional.CryptoContextReport{
+				OnChain:       professional.CryptoContextSection{Available: true},
+				Derivatives:   professional.CryptoContextSection{Available: true},
+				ExchangeFlow:  professional.CryptoContextSection{Available: true},
+				NewsSentiment: professional.CryptoContextSection{Available: true},
+			},
+		},
+	}
+
+	got := BuildQuantAnalysis(result)
+	if !got.Computed || got.MarketClock != "24_7" || got.AnnualizationDays != 365 {
+		t.Fatalf("unexpected crypto quant identity: %+v", got)
+	}
+	if got.CryptoProfile == nil || got.CryptoProfile.Status != "pass" || got.EquityProfile != nil {
+		t.Fatalf("unexpected crypto/equity profile: crypto=%+v equity=%+v", got.CryptoProfile, got.EquityProfile)
+	}
+	if got.Risk.VolatilityRegime == "" || got.Decision.Score <= 0 {
+		t.Fatalf("crypto quant metrics missing: %+v", got)
 	}
 }
 

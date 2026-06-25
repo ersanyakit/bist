@@ -8,7 +8,7 @@ func TestEvaluateCryptoProfile(t *testing.T) {
 		DerivativesAvailable:    true,
 		ExchangeFlowAvailable:   true,
 		NewsSentimentAvailable:  true,
-		ContextCoverageScore:     85,
+		ContextCoverageScore:    85,
 		BenchmarkAvailable:      true,
 		Beta60:                  1.05,
 		RelativeStrength60Pct:   6,
