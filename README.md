@@ -31,6 +31,10 @@ go run ./cmd/hissebot sync kap-extract -ticker ASELS
 	go run ./cmd/hissebot analyze -symbol ADEL
 	go run ./cmd/hissebot analyze -symbol ASELS -provider bistdb -timeframes 1D,1W,1M
 go run ./cmd/hissebot analyze -all
+go run ./cmd/hissebot forecast-walkforward -symbol ASELS -from 2026-06-01 -target close_t1
+go run ./cmd/hissebot verify-forecast -symbol ASELS -from 2026-06-01
+go run ./cmd/hissebot forecast-compare-report -symbol ASELS -from 2026-06-01 -format md
+go run ./cmd/hissebot forecast-error-audit -symbol ASELS -from 2026-06-01
 go run ./cmd/hissebot audit enterprise -mode research
 go run ./cmd/hissebot audit analysis-readiness -symbol ASELS
 go run ./tools/analysis_report_audit -path data/equities/ASELS/analysis/2026-06-13/analysis.json -spot-only=true
@@ -51,6 +55,7 @@ go run ./cmd/hissebot serve api
 - `data/equities/{TICKER}/financials/bilanco.json`: birleştirilmiş bilanço verisi
 - `data/equities/{TICKER}/financials/bilanco_hesaplari.json`: hesaplanan finansal oranlar
 - `data/equities/{TICKER}/analysis/{YYYY-MM-DD}/`: teknik analiz, indikatör, formasyon ve grafik raporları
+- `data/equities/{TICKER}/analysis/forecast_ledger/`: point-in-time t+1 kapanış forecast ledger, verification, gerçek-vs-AI raporu ve hata atfı
 - `data/equities/{TICKER}/comments.json`: hisseye eşleşen yorumlar
 - `data/equities/{TICKER}/kap/attachments/{YEAR}/{DISCLOSURE_INDEX}/`: ilgili hisse klasöründeki tekil KAP PDF/XBRL/Word/Excel ekleri
 - `data/equities/_kap/details/{TICKER}/{DISCLOSURE_INDEX}.json`: KAP bildirim detay ve ek listesi cache'i
@@ -154,6 +159,35 @@ go run ./cmd/hissebot analyze -all -workers 8
 ```
 
 Analiz çıktıları `output/` altına değil, ilgili hisse klasörüne yazılır: `data/equities/{TICKER}/analysis/{YYYY-MM-DD}/`.
+
+## Günlük Kapanış Forecast-Verify Döngüsü
+
+ASELS veya başka bir BIST sembolü için t+1 resmi kapanış tahmini point-in-time ledger mantığıyla çalışır. Forecast agent yalnızca `as_of_date` kapanışına kadar bilinen OHLCV, indikatör, BIST resmi bülten, KAP kapsam uyarıları ve mevcut next-session model girdilerini kullanır. Verifier agent hedef günün resmi BIST kapanışı geldikten sonra tahmini doğrular.
+
+Temel akış:
+
+```bash
+go run ./cmd/hissebot forecast-walkforward -symbol ASELS -from 2026-06-01 -target close_t1 -replace
+go run ./cmd/hissebot verify-forecast -symbol ASELS -from 2026-06-01 -replace
+go run ./cmd/hissebot forecast-compare-report -symbol ASELS -from 2026-06-01 -format md
+go run ./cmd/hissebot forecast-error-audit -symbol ASELS -from 2026-06-01
+```
+
+Üretilen ana dosyalar:
+
+- `data/equities/ASELS/analysis/forecast_ledger/ASELS_2026-06-01_forward.jsonl`
+- `data/equities/ASELS/analysis/forecast_ledger/ASELS_2026-06-01_forward_verification.jsonl`
+- `data/equities/ASELS/analysis/forecast_ledger/forecast_actual_vs_ai.md`
+- `data/equities/ASELS/analysis/forecast_ledger/forecast_error_attribution.json`
+
+Forecast alan sözleşmesi:
+
+- `predicted_close`: engine'in her gün ürettiği kesin nokta kapanış tahmini.
+- `scenario_predicted_close`: publish gate geçmese bile audit ve raporda izlenen araştırma/senaryo nokta tahmini.
+- `published_predicted_close`: yalnızca kalite/publish gate geçerse dolan operasyonel yayın tahmini.
+- `interval_low` ve `interval_high`: nokta tahmini çevresindeki doğrulama bandı.
+
+`forecast_actual_vs_ai.md` raporunda her hedef gün için gerçek kapanış, AI kapanış tahmini, published/scenario ayrımı, band isabeti ve hata yüzdesi satır satır görünür. Publish gate geçmeyen ama kesin rakam üreten tahminler `scenario_only` olarak doğrulanır; hataları `forecast_error_attribution.json` içinde neden ve önerilen düzeltmeyle tutulur.
 
 Tek tuş rapor endpoint'i için lokal HTTP servisini başlatın:
 
