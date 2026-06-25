@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"hissebot/internal/domain"
 	"hissebot/internal/domain/disclosures"
 	"hissebot/internal/domain/documents"
 	"hissebot/internal/domain/financials"
@@ -16,6 +17,12 @@ type PriceRepository interface {
 	SaveOHLCV(ctx context.Context, candles []marketdata.OHLCV) error
 	ListOHLCV(ctx context.Context, symbol string, timeframe marketdata.Timeframe, from time.Time, to time.Time) ([]marketdata.OHLCV, error)
 	SaveAdjustedOHLCV(ctx context.Context, candles []marketdata.OHLCV) error
+}
+
+type EquityRepository interface {
+	Load(ticker string) (*domain.Equity, error)
+	Save(equity *domain.Equity) error
+	List() ([]*domain.Equity, error)
 }
 
 type FinancialStatementRepository interface {

@@ -5,7 +5,7 @@ import (
 	"math"
 	"strings"
 
-	"hissebot/internal/services/pricequality"
+	"hissebot/internal/domain/pricequality"
 	"hissebot/internal/ta/ohlcv"
 	"hissebot/internal/ta/professional"
 )

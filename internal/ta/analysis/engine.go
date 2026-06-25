@@ -4,6 +4,7 @@ package analysis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -12,8 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"hissebot/internal/services/matriksformations"
-	"hissebot/internal/services/pricequality"
+	"hissebot/internal/domain/pricequality"
 	"hissebot/internal/ta/chart"
 	"hissebot/internal/ta/contrarian"
 	"hissebot/internal/ta/corporateactions"
@@ -40,6 +40,15 @@ type Engine struct {
 }
 
 var chartRenderDateLocation = time.FixedZone("TRT", 3*60*60)
+var errPriceQualityProviderNotConfigured = errors.New("price quality provider not configured")
+
+type PriceQualityProvider interface {
+	InspectSymbol(ctx context.Context, symbol string) (*pricequality.SymbolReport, error)
+}
+
+type FormationsProvider interface {
+	LoadTickerSnapshot(ctx context.Context, symbol string) (any, error)
+}
 
 type EngineOptions struct {
 	Timeframes               []string
@@ -59,6 +68,8 @@ type EngineOptions struct {
 	RiskPerTradePct          float64
 	PeerLimit                int
 	SkipKAPPDFIngest         bool
+	PriceQualityProvider     PriceQualityProvider
+	FormationsProvider       FormationsProvider
 }
 
 type SymbolRequest struct {
@@ -69,34 +80,34 @@ type SymbolRequest struct {
 }
 
 type SymbolAnalysis struct {
-	Symbol                  string                            `json:"symbol"`
-	Exchange                string                            `json:"exchange,omitempty"`
-	AssetType               string                            `json:"asset_type"`
-	CompanyName             string                            `json:"company_name"`
-	AnalysisDate            string                            `json:"analysis_date"`
-	Currency                string                            `json:"currency"`
-	Timeframes              map[string]TimeframeAnalysis      `json:"timeframes"`
-	TimeframeErrors         map[string]string                 `json:"timeframe_errors,omitempty"`
-	OverallScore            float64                           `json:"overall_score"`
-	OverallBias             string                            `json:"overall_bias"`
-	MTFAlignment            string                            `json:"mtf_alignment"` // "aligned", "mixed", "conflicting"
-	NextSessionForecast     NextSessionForecast               `json:"next_session_forecast"`
-	MLForecast              taml.ForecastReport               `json:"ml_forecast"`
-	Professional            professional.Report               `json:"professional"`
-	Quant                   QuantAnalysis                     `json:"quant"`
-	StatEconomic            StatEconomicAnalysis              `json:"stat_economic"`
-	Advanced                AdvancedAnalysis                  `json:"advanced_analysis"`
-	FinTradeBench           fintradebench.Report              `json:"fintradebench"`
-	Behavioral              contrarian.Report                 `json:"behavioral"`
-	InvestorQA              investorqa.Report                 `json:"investor_qa"`
-	MatriksFormations       *matriksformations.TickerSnapshot `json:"matriks_formations,omitempty"`
-	PriceQuality            *pricequality.SymbolReport        `json:"price_quality,omitempty"`
-	BISTBulletin            BISTBulletinContext               `json:"bist_bulletin,omitempty"`
-	InstitutionalValidation InstitutionalValidation           `json:"institutional_validation"`
-	DecisionClassification  DecisionClassification            `json:"decision_classification"`
-	DecisionSupport         *DecisionSupportReport            `json:"decision_support,omitempty"`
-	Disclaimer              string                            `json:"disclaimer"`
-	Charts                  map[string][]byte                 `json:"-"`
+	Symbol                  string                       `json:"symbol"`
+	Exchange                string                       `json:"exchange,omitempty"`
+	AssetType               string                       `json:"asset_type"`
+	CompanyName             string                       `json:"company_name"`
+	AnalysisDate            string                       `json:"analysis_date"`
+	Currency                string                       `json:"currency"`
+	Timeframes              map[string]TimeframeAnalysis `json:"timeframes"`
+	TimeframeErrors         map[string]string            `json:"timeframe_errors,omitempty"`
+	OverallScore            float64                      `json:"overall_score"`
+	OverallBias             string                       `json:"overall_bias"`
+	MTFAlignment            string                       `json:"mtf_alignment"` // "aligned", "mixed", "conflicting"
+	NextSessionForecast     NextSessionForecast          `json:"next_session_forecast"`
+	MLForecast              taml.ForecastReport          `json:"ml_forecast"`
+	Professional            professional.Report          `json:"professional"`
+	Quant                   QuantAnalysis                `json:"quant"`
+	StatEconomic            StatEconomicAnalysis         `json:"stat_economic"`
+	Advanced                AdvancedAnalysis             `json:"advanced_analysis"`
+	FinTradeBench           fintradebench.Report         `json:"fintradebench"`
+	Behavioral              contrarian.Report            `json:"behavioral"`
+	InvestorQA              investorqa.Report            `json:"investor_qa"`
+	MatriksFormations       any                          `json:"matriks_formations,omitempty"`
+	PriceQuality            *pricequality.SymbolReport   `json:"price_quality,omitempty"`
+	BISTBulletin            BISTBulletinContext          `json:"bist_bulletin,omitempty"`
+	InstitutionalValidation InstitutionalValidation      `json:"institutional_validation"`
+	DecisionClassification  DecisionClassification       `json:"decision_classification"`
+	DecisionSupport         *DecisionSupportReport       `json:"decision_support,omitempty"`
+	Disclaimer              string                       `json:"disclaimer"`
+	Charts                  map[string][]byte            `json:"-"`
 }
 
 type BISTBulletinContext struct {
@@ -375,14 +386,7 @@ func (e *Engine) AnalyzeSymbol(ctx context.Context, req SymbolRequest) (SymbolAn
 		Disclaimer:      ohlcv.Disclaimer,
 	}
 	if !ohlcv.IsCryptoAssetType(result.AssetType) && !ohlcv.IsCommodityAssetType(result.AssetType) {
-		if snapshot, err := matriksformations.LoadTickerSnapshot(e.options.EquitiesDir, result.Symbol); err == nil {
-			result.MatriksFormations = snapshot
-		}
-		if priceReport, err := pricequality.InspectSymbol(ctx, result.Symbol, pricequality.Options{EquitiesDir: e.options.EquitiesDir}); err == nil {
-			result.PriceQuality = &priceReport
-		} else {
-			result.PriceQuality = priceQualityInspectionFailure(result.Symbol, err)
-		}
+		result = e.attachExternalQualityContext(ctx, result)
 	}
 	corporateActions := corporateactions.ActionSet{Symbol: result.Symbol, Status: "not_applicable"}
 	if !ohlcv.IsCryptoAssetType(result.AssetType) && !ohlcv.IsCommodityAssetType(result.AssetType) {
@@ -446,6 +450,25 @@ func (e *Engine) AnalyzeSymbol(ctx context.Context, req SymbolRequest) (SymbolAn
 	result.DecisionSupport = BuildDecisionSupport(result)
 	result = ApplyNextSessionForecastQualityContext(result)
 	return result, nil
+}
+
+func (e *Engine) attachExternalQualityContext(ctx context.Context, result SymbolAnalysis) SymbolAnalysis {
+	if e.options.FormationsProvider != nil {
+		if snapshot, err := e.options.FormationsProvider.LoadTickerSnapshot(ctx, result.Symbol); err == nil {
+			result.MatriksFormations = snapshot
+		}
+	}
+	if e.options.PriceQualityProvider != nil {
+		priceReport, err := e.options.PriceQualityProvider.InspectSymbol(ctx, result.Symbol)
+		if err == nil && priceReport != nil {
+			result.PriceQuality = priceReport
+		} else {
+			result.PriceQuality = priceQualityInspectionFailure(result.Symbol, err)
+		}
+	} else {
+		result.PriceQuality = priceQualityInspectionFailure(result.Symbol, errPriceQualityProviderNotConfigured)
+	}
+	return result
 }
 
 func priceQualityInspectionFailure(symbol string, err error) *pricequality.SymbolReport {

@@ -33,7 +33,7 @@ type Result struct {
 
 func RunShadow(ctx context.Context, fv features.FeatureVector, deterministic DeterministicInput, models []ml.ForecastModel, cfg ml.RuntimeConfig) Result {
 	if ctx == nil {
-		ctx = context.Background()
+		ctx = context.TODO()
 	}
 	if len(models) == 0 {
 		models = ml.BaselineModels()

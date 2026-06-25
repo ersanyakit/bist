@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"hissebot/internal/config"
-	"hissebot/internal/storage"
+	"hissebot/internal/repositories"
 )
+
+var invalidTickerChars = regexp.MustCompile(`[^A-Z0-9._-]+`)
 
 type Entry struct {
 	Ticker     string     `json:"ticker"`
@@ -39,7 +42,7 @@ type ValidationReport struct {
 	Warnings                []string `json:"warnings,omitempty"`
 }
 
-func Validate(ctx context.Context, cfg config.Config, store *storage.EquityStore) (ValidationReport, error) {
+func Validate(ctx context.Context, cfg config.Config, store repositories.EquityRepository) (ValidationReport, error) {
 	report := ValidationReport{Status: "pass"}
 	listed, listedOK, err := loadOptional(cfg.UniverseFile)
 	if err != nil {
@@ -71,7 +74,7 @@ func Validate(ctx context.Context, cfg config.Config, store *storage.EquityStore
 	}
 	known := map[string]bool{}
 	for _, entry := range append(listed.Entries, delisted.Entries...) {
-		ticker := storage.NormalizeTicker(entry.Ticker)
+		ticker := normalizeTicker(entry.Ticker)
 		if ticker != "" {
 			known[ticker] = true
 		}
@@ -85,7 +88,7 @@ func Validate(ctx context.Context, cfg config.Config, store *storage.EquityStore
 		if equity.AssetType != 0 && equity.AssetType != 2 {
 			continue
 		}
-		ticker := storage.NormalizeTicker(equity.Ticker)
+		ticker := normalizeTicker(equity.Ticker)
 		if ticker == "" {
 			continue
 		}
@@ -149,8 +152,14 @@ func parse(raw []byte) (Snapshot, error) {
 
 func normalizeEntries(entries []Entry) {
 	for i := range entries {
-		entries[i].Ticker = storage.NormalizeTicker(entries[i].Ticker)
+		entries[i].Ticker = normalizeTicker(entries[i].Ticker)
 	}
+}
+
+func normalizeTicker(value string) string {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	value = invalidTickerChars.ReplaceAllString(value, "")
+	return value
 }
 
 func entryFromMap(item map[string]any) Entry {

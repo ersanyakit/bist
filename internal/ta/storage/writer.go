@@ -277,7 +277,7 @@ func hydrateDerivedReportFields(ctx context.Context, equitiesDir string, result 
 
 func hydrateMLForecast(ctx context.Context, equitiesDir string, result analysis.SymbolAnalysis) analysis.SymbolAnalysis {
 	if ctx == nil {
-		ctx = context.Background()
+		ctx = context.TODO()
 	}
 	cfg := taml.LoadRuntimeConfig("")
 	report := taml.ForecastReport{

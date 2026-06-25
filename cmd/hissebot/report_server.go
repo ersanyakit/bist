@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"hissebot/internal/adapters/analysisproviders"
 	"hissebot/internal/audit"
 	appconfig "hissebot/internal/config"
 	"hissebot/internal/domain/documents"
@@ -637,6 +638,8 @@ func (s *reportServer) generate(ctx context.Context, req reportRequest) (reportR
 		RiskPerTradePct:          cfg.RiskPct,
 		PeerLimit:                cfg.PeerLimit,
 		SkipKAPPDFIngest:         envFlag("HISSEBOT_SKIP_KAP_PDF_INGEST"),
+		PriceQualityProvider:     analysisproviders.PriceQualityProvider{EquitiesDir: cfg.OutputDir},
+		FormationsProvider:       analysisproviders.MatriksFormationsProvider{EquitiesDir: cfg.OutputDir},
 	})
 	result, err := engine.AnalyzeSymbol(ctx, analysis.SymbolRequest{Symbol: req.Symbol})
 	if err != nil {

@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"hissebot/internal/domain/marketdata"
+	"hissebot/internal/domain/pricequality"
 	"hissebot/internal/kapingest"
-	"hissebot/internal/services/pricequality"
 	"hissebot/internal/ta/investorqa"
 	"hissebot/internal/ta/macro"
 	"hissebot/internal/ta/ohlcv"

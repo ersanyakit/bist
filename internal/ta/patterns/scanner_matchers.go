@@ -7,6 +7,7 @@ import (
 
 	"hissebot/internal/ta/indicators"
 	"hissebot/internal/ta/ohlcv"
+	"hissebot/internal/ta/scanmatch"
 	"hissebot/pkg/mathutil"
 )
 
@@ -2161,12 +2162,5 @@ func closesFromCandles(c []ohlcv.Candle) []float64 {
 }
 
 func normalizePatternText(value string) string {
-	value = strings.ToLower(value)
-	value = strings.ReplaceAll(value, "-", " ")
-	value = strings.ReplaceAll(value, "_", " ")
-	value = strings.ReplaceAll(value, "=", " ")
-	for strings.Contains(value, "  ") {
-		value = strings.ReplaceAll(value, "  ", " ")
-	}
-	return strings.TrimSpace(value)
+	return scanmatch.NormalizeText(value, scanmatch.Replacement{Old: "=", New: " "})
 }

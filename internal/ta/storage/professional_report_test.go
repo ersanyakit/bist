@@ -221,7 +221,7 @@ func TestHydrateDerivedReportFieldsLoadsVAPAndForecastForLegacyResult(t *testing
 		},
 		Professional: professional.Report{Company: professional.CompanyProfile{Sector: "TEKNOLOJİ", Industry: "SAVUNMA"}},
 	}
-	hydrated := hydrateDerivedReportFields(equitiesDir, result)
+	hydrated := hydrateDerivedReportFields(context.Background(), equitiesDir, result)
 	if !hydrated.Professional.VAPFreeFloat.Computed || hydrated.Professional.VAPFreeFloat.FreeFloatRatioPct != 31.5 {
 		t.Fatalf("VAP free float was not hydrated from XLSX: %+v", hydrated.Professional.VAPFreeFloat)
 	}

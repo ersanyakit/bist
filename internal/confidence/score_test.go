@@ -1,6 +1,9 @@
 package confidence
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestScoreEvidenceSignals(t *testing.T) {
 	tests := []struct {
@@ -42,7 +45,7 @@ func TestScoreEvidenceSignals(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Score(tt.in); got != tt.want {
+			if got := Score(tt.in); math.Abs(got-tt.want) > 1e-12 {
 				t.Fatalf("Score() = %.4f, want %.4f", got, tt.want)
 			}
 		})
