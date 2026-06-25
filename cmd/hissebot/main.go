@@ -66,6 +66,14 @@ func run(args []string) error {
 		return runAnalyze(ctx, cfg, store, args[1:])
 	case "forecast-audit":
 		return runForecastAudit(ctx, cfg, store, args[1:])
+	case "forecast-walkforward":
+		return runForecastWalkforward(ctx, cfg, store, args[1:])
+	case "verify-forecast":
+		return runVerifyForecast(ctx, cfg, store, args[1:])
+	case "forecast-error-audit":
+		return runForecastErrorAudit(ctx, cfg, store, args[1:])
+	case "forecast-compare-report", "forecast-report":
+		return runForecastCompareReport(ctx, cfg, store, args[1:])
 	case "serve":
 		return runServe(ctx, cfg, store, args[1:])
 	case "audit":
@@ -1068,6 +1076,10 @@ Commands:
   financials run                   Bilancolari tek geciste ceker, birlestirir ve hesaplar
   analyze                           Teknik analiz, indikator, formasyon ve grafik raporu uretir
   forecast-audit                   Resmi BIST gerceklesenlerle forecast nokta/range denetimi uretir
+  forecast-walkforward             ASELS/ticker icin append-only t+1 kapanis forecast ledger'i uretir
+  verify-forecast                  Forecast ledger kayitlarini resmi BIST kapanisiyla dogrular
+  forecast-error-audit             Verified forecast hatalarini neden ve duzeltme onerisiyle raporlar
+  forecast-compare-report          Gercek kapanis ile AI tahminini Markdown/CSV/JSON raporlar
   serve comments                   Investing yorum websocket servisinin dosya tabanli hali
   serve reports                    Tek tus PDF/HTML analiz raporu ureten HTTP endpoint'i
   serve api                        Fiber v3 JSON API; sektor endpointleri dahil

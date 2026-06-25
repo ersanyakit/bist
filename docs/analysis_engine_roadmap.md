@@ -448,6 +448,201 @@ Kabul kriterleri:
 - Production mode, research mode'dan daha katı kapilar kullanir.
 - Eksik veri varsa model tahmin uydurmaz; eksigi ve etkisini raporlar.
 
+## Faz 11 - ASELS Gunluk Kapanis Forecast-Verify Dongusu
+
+Amaç: ASELS icin 2026-06-01 sonrasinda her islem gunu, sadece o tarihte bilinebilen veriyle bir sonraki islem gunu kapanis fiyatini tahmin etmek; resmi kapanis geldikten sonra tahmini dogrulamak, hatayi aciklamak ve modeli kontrollu sekilde iyilestirmek.
+
+Kapsam:
+
+- Sembol: `ASELS`.
+- Baslangic tarihi: `2026-06-01`.
+- Hedef: `t+1` resmi kapanis fiyati.
+- Veri ilkesi: Tahmin aninda gelecekteki OHLCV, KAP, bilanço, bulten veya makro verisi kullanilmaz.
+- Dogrulama kaynagi: Oncelik BIST resmi gunluk bulten kapanisi; yoksa verified close gate gecene kadar tahmin `pending_verification` kalir.
+
+### Faz 11.0 - Forecast Ledger ve Point-in-Time Snapshot
+
+Yapilacaklar:
+
+- Her tahmin icin append-only ledger kurulacak.
+- Tahmin girdi snapshot'i `as_of_date`, `forecast_for`, veri hash'leri ve model versiyonuyla kaydedilecek.
+- OHLCV, indicator, quant, stat/economic, professional, advanced, KAP, bilanço ve BIST bulten verisi ayni snapshot kontratina baglanacak.
+- Tahmin anindaki teknik ve quant durum ayrica dondurulacak: tum indikator degerleri, tum indikator sinyalleri, tum formasyonlar, tum pattern scan adaylari, destek/direnc seviyeleri, trade plan, trend bias, volatilite rejimi, quant getiri/risk/benchmark/portfolio metrikleri ve next-session forecast girdileri sonradan degismeyecek sekilde saklanacak.
+- KAP/bilanço/BIST resmi veri durumu ayrica dondurulacak: KAP bildirimleri, KAP'tan cikarilmis corporate event'ler, son finansal donem, publish-date/available-at bilgisi, canonical bilanço/gelir/nakit akimi kalemleri, finansal oranlar, BIST resmi OHLCV, VWAP, hacim, islem adedi, kaynak dosya ve official close reconciliation kaydi snapshot'a dahil edilecek.
+- Tahmin tekrar uretildiginde ayni snapshot ile ayni sonuc alinacak.
+
+Uretilecek ciktilar:
+
+- `forecast_ledger/ASELS_2026-06-01_forward.jsonl`
+- `forecast_snapshot_manifest.json`
+- `forecast_feature_snapshot.json`
+- `forecast_technical_snapshot.json`
+- `forecast_quant_snapshot.json`
+- `forecast_kap_snapshot.json`
+- `forecast_financial_snapshot.json`
+- `forecast_bist_snapshot.json`
+
+Kabul kriterleri:
+
+- Her ledger satiri `symbol`, `as_of_date`, `target_date`, `predicted_close`, `interval_low`, `interval_high`, `confidence`, `data_snapshot_hash`, `model_version` alanlarini tasir.
+- `as_of_date` sonrasina ait veri snapshot'a giremez.
+- Snapshot hash'i degismeden tahmin sonucu degismez.
+- Her tahmin satiri `technical_snapshot_hash` tasir; bu hash indikator/formasyon/destek-direnc/trade-plan durumunu isaret eder.
+- Her tahmin satiri `quant_snapshot_hash` tasir; bu hash getiri, risk, VaR/CVaR, drawdown, Sharpe/Sortino, beta/alpha/korelasyon, benchmark ve portfoy risk metriklerinin tahmin anindaki halini isaret eder.
+- Her tahmin satiri `kap_snapshot_hash`, `financial_snapshot_hash` ve `bist_snapshot_hash` tasir; bu hash'ler KAP olaylari, bilanço/finansal oranlar ve BIST resmi fiyat/hacim verisinin tahmin anindaki halini isaret eder.
+
+### Faz 11.1 - Forecast Agent
+
+Yapilacaklar:
+
+- Forecast agent her islem gunu kapanisindan sonra `target_date=t+1` kapanisini tahmin eder.
+- Feature set su katmanlari kapsar: OHLCV, tum indikatorler, formasyonlar, destek/direnc, next-session policy, quant risk/getiri, faktor modeli, volatilite rejimi, makro duyarlilik, finansal kalite, valuation ensemble, KAP event-study, haber/sentiment, likidite ve forecast history.
+- Teknik feature snapshot'i ham deger ve yorum ayrimini korur: RSI/MACD/MA/ATR/Bollinger/Stochastic/ADX dahil engine'in hesapladigi tum indikator degerleri, `indicator_signals`, `patterns`, `pattern_candidates`, `pattern_scans`, destek/direnc haritasi, `nearest_support`, `nearest_resistance`, `trade_plan`, `trend_bias`, `technical_validation` ve `signal_gate` birlikte kaydedilir.
+- Formasyon snapshot'i yalnizca ekranda secilen formasyonlari degil, scanner'in taradigi tum formasyon sonucunu kapsar: aktif formasyonlar, aday formasyonlar, generated pattern scan sonuclari, confidence/signal score, baslangic-bitis barlari, yon ve tradeable/actionable alanlari saklanir.
+- Quant snapshot'i `quant_risk_report.json` ile uyumlu olur: son fiyat, 1/5/20/60/120/252 gun getiri, volatilite, VaR/CVaR, max drawdown, Sharpe/Sortino/Calmar, beta/alpha/korelasyon, relative strength, portfolio VaR/risk budget ve quant decision gate degerleri saklanir.
+- KAP snapshot'i her tahminde o gun bilinebilen KAP bildirimlerini, event category/summary/materiality, corporate action/corporate event kayitlarini, KAP event-study skorlarini ve kaynak dosya/hash bilgisini tasir.
+- Finansal snapshot son bilinen bilanço/gelir tablosu/nakit akimi donemini, publish-date/available-at zincirini, canonical finansal kalemleri, finansal kalite skorlarini, valuation ensemble girdilerini ve eksik/uyumsuz finansal veri uyarilarini tasir.
+- BIST snapshot resmi bulten OHLCV, onceki kapanis, VWAP, hacim, islem adedi, acilis/kapanis seansi verileri, source path ve verified close gate sonucunu tasir.
+- Tahmin tek sayi olarak kalmaz; tahmin araligi ve confidence uretilir.
+- Model, veri eksikse tahmin uydurmak yerine confidence dusurur ve `missing_inputs` yazar.
+
+Uretilecek ciktilar:
+
+- `next_close_forecast.json`
+- `forecast_feature_importance.json`
+- `forecast_reasoning_trace.json`
+- `forecast_technical_snapshot.json`
+- `forecast_quant_snapshot.json`
+- `forecast_kap_snapshot.json`
+- `forecast_financial_snapshot.json`
+- `forecast_bist_snapshot.json`
+
+Kabul kriterleri:
+
+- Her tahmin icin `predicted_close` ve `prediction_interval` uretilir.
+- Confidence, validation ve veri kalitesi dusukse otomatik sinirlanir.
+- Forecast gerekceleri en az `technical`, `quant`, `kap_event`, `fundamental`, `macro`, `liquidity`, `regime` basliklarina ayrilir.
+
+### Faz 11.2 - Verifier Agent
+
+Yapilacaklar:
+
+- Verifier agent hedef gunun resmi kapanisi geldikten sonra tahmini dogrular.
+- Resmi kapanis yoksa TradingView/local close sadece gecici referans kabul edilir.
+- Tahmin hatasi fiyat adimi, yuzde hata, yon isabeti ve aralik kapsami olarak hesaplanir.
+- Forecast agent'in kullandigi snapshot ile verifier'in kullandigi gerceklesen fiyat kaynagi ayrilir.
+
+Uretilecek ciktilar:
+
+- `forecast_validation_report.json`
+- `forecast_verification_events.jsonl`
+- `official_close_reconciliation.json`
+
+Kabul kriterleri:
+
+- Her tamamlanan tahmin `verified`, `pending_verification` veya `verification_blocked` durumuna gecer.
+- `absolute_error`, `pct_error`, `direction_hit`, `interval_hit`, `official_close_source` alanlari dolar.
+- Resmi kapanis mutabakati yoksa model performans metrikleri production skoruna dahil edilmez.
+
+### Faz 11.3 - Hata Atif ve Aciklama Katmani
+
+Yapilacaklar:
+
+- Her hatali tahminden sonra hata kaynagi siniflandirilir.
+- Hata siniflari: teknik indikator gecikmesi, formasyon false-positive/false-negative, quant risk/getiri sinyali uyumsuzlugu, volatilite rejim kirilimi, piyasa beta/sektor etkisi, KAP/bilanço etkisi, makro sok, likidite/mikroyapi, corporate action/fiyat duzeltme, veri eksigi, point-in-time ihlali, model calibration hatasi.
+- Teknik hata atfi, tahmin gunundeki snapshot'a bakarak yapilir: hangi indikatorler long/short/neutral idi, hangi formasyonlar aktifti, destek/direnc mesafesi neydi, trade plan neden kabul/red verdi ve bu sinyaller gerceklesen kapanisla neden uyumsuz kaldi ayrica raporlanir.
+- Quant hata atfi tahmin gunundeki snapshot'a bakarak yapilir: return momentum, beta/alpha, benchmark relative strength, VaR/CVaR, drawdown, volatilite ve portfolio risk sinyalleri kapanis tahminini destekliyor muydu yoksa risk kapisi zaten zayif miydi ayrica raporlanir.
+- KAP/bilanço/BIST hata atfi snapshot'a bakarak yapilir: tahmin gununde hangi KAP olayi biliniyordu, son finansal donem ve oranlar neydi, BIST resmi kapanis/hacim/VWAP ve verified close durumu neydi, hata bu veri katmanlarindan hangisinin eksik/yanlis/zayif sinyalinden kaynaklandi ayrica raporlanir.
+- Hata aciklamasi sayisal kanitla desteklenir; sadece metin yorumu yeterli sayilmaz.
+- Tekil gun hatasi ile sistematik hata ayrilir.
+
+Uretilecek ciktilar:
+
+- `forecast_error_attribution.json`
+- `forecast_error_journal.jsonl`
+- `forecast_regime_failure_report.json`
+- `forecast_technical_error_attribution.json`
+- `forecast_quant_error_attribution.json`
+- `forecast_kap_financial_bist_error_attribution.json`
+
+Kabul kriterleri:
+
+- `pct_error` belirlenen esigi asarsa hata atif raporu zorunlu uretilir.
+- Hata nedenleri `primary_cause`, `secondary_causes`, `evidence`, `recommended_fix` alanlariyla gelir.
+- Teknik kaynakli hata varsa `technical_evidence` alaninda tahmin anindaki indikator/formasyon/trade-plan snapshot referansi bulunur.
+- Quant kaynakli hata varsa `quant_evidence` alaninda tahmin anindaki return/risk/benchmark/portfolio snapshot referansi bulunur.
+- KAP, bilanço veya BIST kaynakli hata varsa `kap_evidence`, `financial_evidence` ve `bist_evidence` alanlari ilgili snapshot hash'i ve kaynak dosya ile birlikte gelir.
+- Point-in-time veya veri mutabakati hatasi varsa tahmin performansi model hatasi olarak sayilmaz; once veri kapisi duzeltilir.
+
+### Faz 11.4 - Kontrollu Duzeltme ve Model Iyilestirme
+
+Yapilacaklar:
+
+- Hata analizi sonucunda model agirliklari, feature set veya confidence politikasi otomatik onerilir.
+- Duzeltmeler sadece gecmis verified ledger uzerinden test edilir; gelecekteki veriyle optimize edilmez.
+- Champion/challenger sistemiyle yeni model eski modele karsi walk-forward karsilastirilir.
+- Duzeltme, validation gate gecmeden production forecast modeline terfi etmez.
+
+Uretilecek ciktilar:
+
+- `forecast_model_adjustments.json`
+- `champion_challenger_forecast_report.json`
+- `forecast_calibration_report.json`
+
+Kabul kriterleri:
+
+- Her model degisikligi `reason`, `before_metrics`, `after_metrics`, `effective_from`, `approved` alanlarini tasir.
+- Challenger model, out-of-sample metriklerde daha iyi degilse champion yerine gecmez.
+- Duzeltme sonrasi eski tahminler geriye donuk degistirilmez; ledger append-only kalir.
+
+### Faz 11.5 - ASELS Walk-Forward Runbook
+
+Gunluk akis:
+
+1. `as_of_date` icin OHLCV, BIST bulten, KAP, bilanço, makro ve haber verisi senkronize edilir.
+2. Veri kapilari calisir: verified close, point-in-time, corporate action, KAP/bilanço availability.
+3. Forecast agent `target_date` kapanis tahminini uretir.
+4. Tahmin ledger'a append edilir.
+5. `target_date` resmi kapanisi geldikten sonra verifier agent sonucu dogrular.
+6. Hata esigi asildiysa error attribution agent calisir.
+7. Gerekirse challenger model veya confidence policy duzeltmesi onerilir.
+8. Duzeltme sadece walk-forward validation gectikten sonra aktif olur.
+
+Komut hedefi:
+
+- `go run ./cmd/hissebot forecast-walkforward -symbol ASELS -from 2026-06-01 -target close_t1`
+- `go run ./cmd/hissebot verify-forecast -symbol ASELS -from 2026-06-01`
+- `go run ./cmd/hissebot forecast-compare-report -symbol ASELS -from 2026-06-01 -format md`
+- `go run ./cmd/hissebot forecast-error-audit -symbol ASELS -from 2026-06-01`
+
+Mevcut implementasyon durumu:
+
+- `forecast-walkforward` eklendi; append-only JSONL ledger uretir, point-in-time snapshot hash'i tasir ve mevcut BIST resmi bulten + next-session forecast/audit altyapisini kullanir.
+- `verify-forecast` eklendi; ledger tahminlerini resmi BIST kapanisiyla dogrular, kapanis hata yuzdesi, yon isabeti ve interval isabeti uretir.
+- `forecast-error-audit` eklendi; verified tahminlerde hata esigi asildiginda ana neden, kanit ve duzeltme onerisi raporlar.
+- `forecast-compare-report` eklendi; `forecast_actual_vs_ai.md/csv/json` ile target gun, as-of gun, gercek kapanis, AI published close, AI scenario close, band, interval hit ve hata yuzdesini satir satir raporlar.
+- `forecast-walkforward` / `verify-forecast` icin `-replace` eklendi; eski JSONL uzerine duplicate append yapmadan ayni ledger/verification dosyasi temiz yeniden yazilabilir.
+- `predicted_close` artik engine'in her gun urettigi kesin nokta kapanis tahmini olarak saklanir; `published_predicted_close` yalnizca kalite/publish gate gecerse dolar.
+- Publish gate'i gecmeyen kesin nokta tahminleri `scenario_predicted_close` ile de raporlanir ve verification `verified_scenario_only` modunda hata metriklerine girer.
+- Zayif rolling validasyon penceresinde next-session forecast point hareketi son kapanisa dogru sonumlenir, close scenario bandi rolling MAPE ile genisletilir ve hata atifinda publish gate kok nedeni one alinir.
+- Scenario point kapisi artik nokta tahmini susturmaz; zayif rolling MAPE/yon edge'i varsa nokta tahmin `research_point_low_confidence` status'u ve neden alanlariyla saklanir.
+- Ilk dilim BIST resmi OHLCV, indikatör/next-session forecast, BIST overlay backtest ve KAP disclosure kapsam uyarilarini ledger'a baglar.
+
+Kalan implementasyon:
+
+- Tam `analyze` motoru snapshot'inin ledger'a dogrudan baglanmasi.
+- KAP PDF/fact/event, finansal kalite, valuation ensemble, makro ve likidite feature'larinin tahmin feature store'una ayri alanlar halinde yazilmasi.
+- Champion/challenger forecast model registry ve otomatik ama gated model terfisi.
+
+### Faz 11 Definition of Done
+
+- ASELS icin 2026-06-01 sonrasi her islem gunu bir ledger kaydi vardir.
+- Her tahmin point-in-time snapshot hash'i tasir.
+- Her gerceklesen kapanis tahmini verifier agent tarafindan dogrulanir.
+- Hata esigi asilan her gun icin hata atif raporu vardir.
+- En az iki model ailesi champion/challenger olarak karsilastirilir.
+- `go test ./internal/ta/analysis ./internal/ta/storage ./internal/quant/...` ve forecast ledger fixture testleri yesildir.
+
 ## Fazlar Arasi Oncelik
 
 Onerilen sira:
@@ -462,6 +657,7 @@ Onerilen sira:
 8. Faz 7: Event study.
 9. Faz 9: Likidite/portfoy.
 10. Faz 6 ve Faz 10: Degerleme ensemble ve production orkestrasyon.
+11. Faz 11: ASELS forecast-verify dongusu.
 
 Bu sira bilerek secildi: once verinin ve validasyonun guvenli olmasi gerekir. Aksi halde daha karmasik modeller sadece daha karmasik hatalar uretir.
 

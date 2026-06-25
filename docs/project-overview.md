@@ -63,6 +63,7 @@ bist/
 ### Mevcut belgeler (proje deposundan)
 - [AI Erişim Rehberi](./ai_access_guide.md) — AI ajanlarının repo verisine erişimi
 - [Analiz Motoru Yol Haritası](./analysis_engine_roadmap.md) — quant/stat-ekonomik kapsam ve fazlar
+- [QuantLib / Fincept Araştırma Planı](./quantlib_fincept_research_plan.md) — akademik model doğrulama ve entegrasyon fazları
 - [BIST Veri Mimarisi](./bist_data_architecture.md)
 - [KAP Belge Analiz Mimarisi](./kap_document_analysis_architecture.md)
 - [Kod İncelemesi (2026-06-25)](./review-2026-06-25.md) — mimari/kalite bulguları

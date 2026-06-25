@@ -264,6 +264,7 @@ type NextSessionDecisionForecast struct {
 
 type NextSessionBacktestRow struct {
 	Date               string  `json:"date"`
+	PreviousClose      float64 `json:"previous_close,omitempty"`
 	ActualOpen         float64 `json:"actual_open"`
 	PredictedOpen      float64 `json:"predicted_open"`
 	OpenAbsError       float64 `json:"open_abs_error"`
@@ -925,7 +926,7 @@ func (e *Engine) analyzeTimeframe(ctx context.Context, instrument ohlcv.Instrume
 	plan = applyTechnicalSignalGateToTradePlan(plan, professionalReport.Technical.SignalGate)
 	nsf := NextSessionForecast{}
 	if timeframe == "1D" {
-		nsf = computeNextSessionForecastWithTechnicalContext(ctx, candles, snapshot, bias, instrument.AssetType, allPatterns, sr, plan, instrument.Symbol)
+		nsf = computeNextSessionForecastWithTechnicalContext(ctx, candles, snapshot, bias, instrument.AssetType, indicatorScan.Indicators, allPatterns, scanOutput.PatternCandidates, sr, plan, instrument.Symbol)
 	}
 	tf := TimeframeAnalysis{
 		Timeframe:           timeframe,
@@ -1675,13 +1676,31 @@ func ComputeNextSessionForecastFromCandlesContext(ctx context.Context, candles [
 	if err != nil {
 		return NextSessionForecast{}, fmt.Errorf("calculate support/resistance for next-session forecast: %w", err)
 	}
-	detectedPatterns, err := nextSessionForecastFastPatterns(candles, snapshot)
+	lastClose := candles[len(candles)-1].EffectiveClose()
+	lastVolume := candles[len(candles)-1].EffectiveVolume()
+	indicatorScan, err := indicators.ScanIndicators(ctx, indicators.ScannerInput{
+		Timeframe:  "1D",
+		Candles:    candles,
+		Snapshot:   snapshot,
+		LastClose:  lastClose,
+		LastVolume: lastVolume,
+	})
 	if err != nil {
-		return NextSessionForecast{}, fmt.Errorf("scan lightweight patterns for next-session forecast: %w", err)
+		return NextSessionForecast{}, fmt.Errorf("scan indicators for next-session forecast: %w", err)
 	}
+	patternOutput, err := patterns.Scan(ctx, patterns.ScannerInput{
+		Timeframe:         "1D",
+		Candles:           candles,
+		Indicators:        snapshot,
+		SupportResistance: sr,
+	})
+	if err != nil {
+		return NextSessionForecast{}, fmt.Errorf("scan patterns for next-session forecast: %w", err)
+	}
+	detectedPatterns := patternOutput.Patterns
 	bias := trendBias(candles, snapshot, detectedPatterns)
 	plan, err := risk.BuildTradePlan(risk.Input{
-		LastPrice:  candles[len(candles)-1].EffectiveClose(),
+		LastPrice:  lastClose,
 		ATR:        snapshot.ATR14,
 		Bias:       bias,
 		Patterns:   detectedPatterns,
@@ -1691,7 +1710,7 @@ func ComputeNextSessionForecastFromCandlesContext(ctx context.Context, candles [
 	if err != nil {
 		return NextSessionForecast{}, fmt.Errorf("build trade plan for next-session forecast: %w", err)
 	}
-	return computeNextSessionForecastWithTechnicalContext(ctx, candles, snapshot, bias, assetType, detectedPatterns, sr, plan, ""), nil
+	return computeNextSessionForecastWithTechnicalContext(ctx, candles, snapshot, bias, assetType, indicatorScan.Indicators, detectedPatterns, patternOutput.PatternCandidates, sr, plan, ""), nil
 }
 
 func AttachActualToNextSessionForecast(f NextSessionForecast, actualOpen, actualClose float64, source, sourcePath string) NextSessionForecast {
@@ -1867,6 +1886,7 @@ func ApplyBISTBulletinBacktestToNextSessionForecast(f NextSessionForecast, recor
 			f.Confidence = roundForecastMetric(math.Min(f.Confidence, 55))
 			f.ConfidenceLabel = nextSessionConfidenceLabel(f.Confidence)
 		}
+		f = calibrateWeakValidatedNextSessionForecast(f, metrics, assetType, "")
 	}
 	return syncNextSessionDecisionForecast(f, f.DecisionForecast.Ticker)
 }
@@ -1880,6 +1900,83 @@ func nextSessionForecastUsesBISTOverlay(f NextSessionForecast) bool {
 
 func nextSessionForecastUsesBISTOpenAnchor(f NextSessionForecast) bool {
 	return strings.Contains(strings.ToLower(f.Model), "bist_open_anchor")
+}
+
+func calibrateWeakValidatedNextSessionForecast(f NextSessionForecast, metrics nextSessionForecastBacktestMetrics, assetType, symbol string) NextSessionForecast {
+	if !f.Computed || f.LastClose <= 0 || metrics.samples < nextSessionPointForecastMinBacktestSamples {
+		return f
+	}
+	model := strings.ToLower(f.Model)
+	if strings.Contains(model, "weak_validation_calibration_v1") {
+		return f
+	}
+	closeWeak := metrics.closeMAEPct > nextSessionPointForecastMaxCloseMAEPct
+	directionWeak := metrics.directionHitRatePct > 0 && metrics.directionHitRatePct < nextSessionPointForecastMinDirectionHitPct
+	if !closeWeak && !directionWeak {
+		return f
+	}
+
+	factor := 0.50
+	switch {
+	case closeWeak && directionWeak:
+		factor = 0.20
+	case closeWeak:
+		factor = 0.35
+	}
+	rawOpen := forecastRawPredictedOpen(f)
+	rawClose := forecastRawPredictedClose(f)
+	if rawOpen > 0 {
+		f.RawPredictedOpen = roundForecastPrice(f.LastClose + factor*(rawOpen-f.LastClose))
+		f.PredictedOpen = f.RawPredictedOpen
+	}
+	if rawClose > 0 {
+		f.RawPredictedClose = roundForecastPrice(f.LastClose + factor*(rawClose-f.LastClose))
+		f.PredictedClose = f.RawPredictedClose
+	}
+
+	center := firstPositiveFloat(f.RawPredictedClose, f.PredictedClose, f.LastClose)
+	if center > 0 {
+		spanPct := 0.035
+		if metrics.closeMAEPct > 0 {
+			spanPct = mathutil.Clamp(metrics.closeMAEPct*2.75/100, 0.025, 0.12)
+		}
+		span := f.LastClose * spanPct
+		rawLow := forecastRawExpectedLow(f)
+		rawHigh := forecastRawExpectedHigh(f)
+		if rawLow <= 0 {
+			rawLow = center - span
+		}
+		if rawHigh <= 0 {
+			rawHigh = center + span
+		}
+		f.RawExpectedLow = roundForecastPrice(math.Min(rawLow, center-span))
+		f.RawExpectedHigh = roundForecastPrice(math.Max(rawHigh, center+span))
+		f.ExpectedLow = f.RawExpectedLow
+		f.ExpectedHigh = f.RawExpectedHigh
+		f.CloseP10 = f.RawExpectedLow
+		f.CloseP50 = roundForecastPrice(center)
+		f.CloseP90 = f.RawExpectedHigh
+	}
+	if f.LastClose > 0 && f.PredictedOpen > 0 {
+		f.OpenChangePct = roundForecastMetric(100 * (f.PredictedOpen/f.LastClose - 1))
+	}
+	if f.LastClose > 0 && f.PredictedClose > 0 {
+		f.CloseChangePct = roundForecastMetric(100 * (f.PredictedClose/f.LastClose - 1))
+	}
+	f.DirectionBias = downgradedNextSessionDirection(f.DirectionBias, f.CloseChangePct)
+	f.BiasStrength = "validasyon zayıf"
+	f.Confidence = roundForecastMetric(math.Min(f.Confidence, 35))
+	f.ConfidenceLabel = nextSessionConfidenceLabel(f.Confidence)
+	f.Model = withForecastModelOverlay(f.Model, "weak_validation_calibration_v1")
+	f.BiasReasons = appendUniqueAnalysisString(f.BiasReasons, fmt.Sprintf(
+		"Zayıf rolling validasyon kalibrasyonu: son %d örnekte kapanış MAPE %.2f%%, yön uyumu %.2f%%; point hareketi %.0f%% katsayıyla sönümlendi ve scenario bandı genişletildi.",
+		metrics.samples,
+		metrics.closeMAEPct,
+		metrics.directionHitRatePct,
+		factor*100,
+	))
+	f.Warnings = appendUniqueAnalysisString(f.Warnings, "weak_validation_point_forecast_damped_interval_widened")
+	return applyTradablePriceStepToNextSessionForecast(f, assetType, symbol)
 }
 
 type bistBulletinAnalogPrediction struct {
@@ -2566,9 +2663,9 @@ func computeNextSessionForecast(candles []ohlcv.Candle, snapshot ohlcv.Indicator
 	return ComputeNextSessionForecast(candles, snapshot, bias, assetType)
 }
 
-func computeNextSessionForecastWithTechnicalContext(ctx context.Context, candles []ohlcv.Candle, snapshot ohlcv.IndicatorSnapshot, bias, assetType string, pats []ohlcv.PatternResult, sr supportresistance.Result, plan ohlcv.TradePlan, symbol string) NextSessionForecast {
+func computeNextSessionForecastWithTechnicalContext(ctx context.Context, candles []ohlcv.Candle, snapshot ohlcv.IndicatorSnapshot, bias, assetType string, indicatorSignals []ohlcv.IndicatorResult, pats []ohlcv.PatternResult, patternCandidates []ohlcv.PatternResult, sr supportresistance.Result, plan ohlcv.TradePlan, symbol string) NextSessionForecast {
 	forecast := computeNextSessionForecastModel(candles, snapshot, bias, assetType, true)
-	return applyNextSessionTechnicalDecisionContext(forecast, candles, snapshot, pats, sr, plan, assetType, symbol)
+	return applyNextSessionTechnicalDecisionContext(forecast, candles, snapshot, indicatorSignals, pats, patternCandidates, sr, plan, assetType, symbol)
 }
 
 func nextSessionForecastFastPatterns(candles []ohlcv.Candle, snapshot ohlcv.IndicatorSnapshot) ([]ohlcv.PatternResult, error) {
@@ -2637,7 +2734,7 @@ func shiftNextSessionPatternIndexes(patterns []ohlcv.PatternResult, offset int) 
 	return out
 }
 
-func applyNextSessionTechnicalDecisionContext(f NextSessionForecast, candles []ohlcv.Candle, snapshot ohlcv.IndicatorSnapshot, pats []ohlcv.PatternResult, sr supportresistance.Result, plan ohlcv.TradePlan, assetType, symbol string) NextSessionForecast {
+func applyNextSessionTechnicalDecisionContext(f NextSessionForecast, candles []ohlcv.Candle, snapshot ohlcv.IndicatorSnapshot, indicatorSignals []ohlcv.IndicatorResult, pats []ohlcv.PatternResult, patternCandidates []ohlcv.PatternResult, sr supportresistance.Result, plan ohlcv.TradePlan, assetType, symbol string) NextSessionForecast {
 	if !f.Computed || len(candles) == 0 || f.LastClose <= 0 {
 		return f
 	}
@@ -2645,14 +2742,30 @@ func applyNextSessionTechnicalDecisionContext(f NextSessionForecast, candles []o
 	if lastClose <= 0 {
 		lastClose = candles[len(candles)-1].EffectiveClose()
 	}
-	indicatorBull, indicatorBear := indicatorConfluence(snapshot, lastClose)
-	indicatorScore := nextSessionConfluenceScore(indicatorBull, indicatorBear)
+	snapshotBull, snapshotBear := indicatorConfluence(snapshot, lastClose)
+	indicatorBull := snapshotBull
+	indicatorBear := snapshotBear
+	indicatorScore := nextSessionConfluenceScore(snapshotBull, snapshotBear)
+	indicatorUniverse := nextSessionIndicatorUniverseDecisionScore(indicatorSignals)
+	if indicatorUniverse.Directional > 0 {
+		indicatorBull = indicatorUniverse.Bullish
+		indicatorBear = indicatorUniverse.Bearish
+		indicatorScore = indicatorUniverse.Score
+	}
 	indicatorConsensus := nextSessionConsensusLabel(indicatorScore, 0.25)
-	patternScore, activePatterns, patternNames := nextSessionPatternDecisionScore(candles, pats)
+	patternUniverse := nextSessionPatternDecisionScore(candles, pats, patternCandidates)
+	patternScore := patternUniverse.Score
+	activePatterns := patternUniverse.Active
+	candidatePatterns := patternUniverse.Candidates
+	patternNames := patternUniverse.Names
 	patternConsensus := nextSessionConsensusLabel(patternScore, 0.20)
 	planScore, planDirection, planStatus := nextSessionPlanDecisionScore(plan)
 	levelScore, levelReason := nextSessionLevelDecisionScore(lastClose, snapshot.ATR14, sr)
-	decisionScore := mathutil.Clamp(0.45*indicatorScore+0.30*patternScore+0.20*planScore+0.05*levelScore, -1, 1)
+	featureUniverseScore := mathutil.Clamp(0.55*indicatorScore+0.35*patternScore+0.07*planScore+0.03*levelScore, -1, 1)
+	if calibrated, ok := applyNextSessionFullSignalUniverseCalibration(f, featureUniverseScore, snapshot.ATR14, assetType, symbol); ok {
+		f = calibrated
+	}
+	decisionScore := mathutil.Clamp(0.50*indicatorScore+0.35*patternScore+0.10*planScore+0.05*levelScore, -1, 1)
 	decisionStatus := "pass"
 	blockers := []string{}
 
@@ -2717,18 +2830,23 @@ func applyNextSessionTechnicalDecisionContext(f NextSessionForecast, candles []o
 	f.TradePlanStatus = planStatus
 	f.Model = withForecastModelOverlay(f.Model, "indicator_pattern_gate_v1")
 	f.BiasReasons = appendUniqueAnalysisString(f.BiasReasons, fmt.Sprintf(
-		"Teknik karar kapısı: durum=%s, skor=%.0f/100, indikatör=%s (%d/%d), formasyon=%s (%d aktif), işlem planı=%s.",
+		"Teknik karar kapısı: durum=%s, skor=%.0f/100, full_indikatör=%s (%d/%d yönlü, %d computed), formasyon=%s (%d aktif, %d aday), işlem planı=%s.",
 		decisionStatus,
 		f.TechnicalDecisionScore,
 		indicatorConsensus,
 		indicatorBull,
 		indicatorBear,
+		indicatorUniverse.Computed,
 		patternConsensus,
 		activePatterns,
+		candidatePatterns,
 		planStatus,
 	))
+	if len(indicatorUniverse.Names) > 0 {
+		f.BiasReasons = appendUniqueAnalysisString(f.BiasReasons, "Full indikatör evreni etkisi: "+strings.Join(indicatorUniverse.Names, "; "))
+	}
 	if len(patternNames) > 0 {
-		f.BiasReasons = appendUniqueAnalysisString(f.BiasReasons, "Aktif formasyon etkisi: "+strings.Join(patternNames, "; "))
+		f.BiasReasons = appendUniqueAnalysisString(f.BiasReasons, "Full formasyon evreni etkisi: "+strings.Join(patternNames, "; "))
 	}
 	if levelReason != "" {
 		f.BiasReasons = appendUniqueAnalysisString(f.BiasReasons, levelReason)
@@ -2748,10 +2866,154 @@ func nextSessionConfluenceScore(bull, bear int) float64 {
 	return mathutil.Clamp(float64(bull-bear)/float64(total), -1, 1)
 }
 
+type nextSessionSignalUniverseScore struct {
+	Score       float64
+	Bullish     int
+	Bearish     int
+	Computed    int
+	Directional int
+	Names       []string
+}
+
+type nextSessionPatternUniverseScore struct {
+	Score      float64
+	Bullish    int
+	Bearish    int
+	Active     int
+	Candidates int
+	Names      []string
+}
+
+type nextSessionWeightedEvidence struct {
+	Text   string
+	Weight float64
+}
+
+func nextSessionIndicatorUniverseDecisionScore(indicators []ohlcv.IndicatorResult) nextSessionSignalUniverseScore {
+	out := nextSessionSignalUniverseScore{}
+	if len(indicators) == 0 {
+		return out
+	}
+	bullWeight := 0.0
+	bearWeight := 0.0
+	evidence := []nextSessionWeightedEvidence{}
+	for _, indicator := range indicators {
+		if !indicator.Computed {
+			continue
+		}
+		out.Computed++
+		direction := nextSessionIndicatorSignalDirection(indicator.Signal)
+		if direction == 0 || indicator.Confidence <= 0 {
+			continue
+		}
+		weight := mathutil.Clamp(indicator.Confidence, 0.05, 1)
+		out.Directional++
+		if direction > 0 {
+			out.Bullish++
+			bullWeight += weight
+		} else {
+			out.Bearish++
+			bearWeight += weight
+		}
+		evidence = append(evidence, nextSessionWeightedEvidence{
+			Text:   fmt.Sprintf("%s %s %.0f%%", indicator.Name, localize.Direction(indicator.Signal), 100*weight),
+			Weight: weight,
+		})
+	}
+	total := bullWeight + bearWeight
+	if total <= 0 {
+		return out
+	}
+	out.Score = mathutil.Clamp((bullWeight-bearWeight)/total, -1, 1)
+	out.Names = topNextSessionWeightedEvidence(evidence, 6)
+	return out
+}
+
+func nextSessionIndicatorSignalDirection(signal string) int {
+	value := strings.ToLower(strings.TrimSpace(signal))
+	switch {
+	case value == "bullish" || value == "buy" || value == "long" || value == "positive" || value == "up":
+		return 1
+	case value == "bearish" || value == "sell" || value == "short" || value == "negative" || value == "down":
+		return -1
+	default:
+		return 0
+	}
+}
+
 func nextSessionDirectionsConflict(a, b string) bool {
 	a = strings.ToLower(strings.TrimSpace(a))
 	b = strings.ToLower(strings.TrimSpace(b))
 	return (a == "bullish" && b == "bearish") || (a == "bearish" && b == "bullish")
+}
+
+func applyNextSessionFullSignalUniverseCalibration(f NextSessionForecast, score, atr float64, assetType, symbol string) (NextSessionForecast, bool) {
+	if !f.Computed || f.LastClose <= 0 || math.Abs(score) < 0.08 {
+		return f, false
+	}
+	if atr <= 0 {
+		atr = f.LastClose * 0.015
+	}
+	atrPct := safeRatio(atr, f.LastClose)
+	if atrPct <= 0 {
+		atrPct = 0.015
+	}
+	rawOpen := forecastRawPredictedOpen(f)
+	rawClose := forecastRawPredictedClose(f)
+	if rawOpen <= 0 || rawClose <= 0 {
+		return f, false
+	}
+	move := score * mathutil.Clamp(0.45*atrPct, 0.0015, 0.018)
+	openAdj := 0.35 * move
+	closeAdj := 0.85 * move
+	openClamp := math.Max(1.05*atr, f.LastClose*0.015)
+	closeClamp := math.Max(2.10*atr, f.LastClose*0.030)
+	nextOpen := mathutil.Clamp(rawOpen*(1+openAdj), f.LastClose-openClamp, f.LastClose+openClamp)
+	nextClose := mathutil.Clamp(rawClose*(1+closeAdj), f.LastClose-closeClamp, f.LastClose+closeClamp)
+	if math.Abs(nextOpen-rawOpen) < 1e-9 && math.Abs(nextClose-rawClose) < 1e-9 {
+		return f, false
+	}
+
+	f.RawPredictedOpen = roundForecastPrice(nextOpen)
+	f.RawPredictedClose = roundForecastPrice(nextClose)
+	f.PredictedOpen = f.RawPredictedOpen
+	f.PredictedClose = f.RawPredictedClose
+	lowCandidate := math.Min(f.RawPredictedOpen, f.RawPredictedClose)
+	highCandidate := math.Max(f.RawPredictedOpen, f.RawPredictedClose)
+	rawLow := forecastRawExpectedLow(f)
+	rawHigh := forecastRawExpectedHigh(f)
+	if rawLow <= 0 {
+		rawLow = f.LastClose - math.Max(0.85*atr, f.LastClose*0.018)
+	}
+	if rawHigh <= 0 {
+		rawHigh = f.LastClose + math.Max(0.85*atr, f.LastClose*0.018)
+	}
+	f.RawExpectedLow = roundForecastPrice(math.Min(rawLow, lowCandidate))
+	f.RawExpectedHigh = roundForecastPrice(math.Max(rawHigh, highCandidate))
+	f.ExpectedLow = f.RawExpectedLow
+	f.ExpectedHigh = f.RawExpectedHigh
+	if f.LastClose > 0 {
+		f.OpenChangePct = roundForecastMetric(100 * (f.PredictedOpen/f.LastClose - 1))
+		f.CloseChangePct = roundForecastMetric(100 * (f.PredictedClose/f.LastClose - 1))
+	}
+	switch {
+	case f.CloseChangePct >= 0.35:
+		f.DirectionBias = "yükseliş"
+	case f.CloseChangePct <= -0.35:
+		f.DirectionBias = "düşüş"
+	default:
+		f.DirectionBias = "yatay"
+	}
+	f.Model = withForecastModelOverlay(f.Model, "full_signal_universe_v1")
+	f.BiasReasons = appendUniqueAnalysisString(f.BiasReasons, fmt.Sprintf(
+		"Full sinyal evreni fiyat kalibrasyonu: skor=%.0f/100, ATR=%.2f%%, açılış ayarı=%+.2f%%, kapanış ayarı=%+.2f%%.",
+		score*100,
+		atrPct*100,
+		openAdj*100,
+		closeAdj*100,
+	))
+	f.Warnings = appendUniqueAnalysisString(f.Warnings, "full_indicator_pattern_universe_price_overlay_applied")
+	return applyTradablePriceStepToNextSessionForecast(f, assetType, symbol), true
 }
 
 func recalibrateNextSessionForecastToDirection(f NextSessionForecast, direction string, strength, atr float64, assetType, symbol, reason string) NextSessionForecast {
@@ -2826,58 +3088,171 @@ func nextSessionConsensusLabel(score, threshold float64) string {
 	}
 }
 
-func nextSessionPatternDecisionScore(candles []ohlcv.Candle, pats []ohlcv.PatternResult) (float64, int, []string) {
-	if len(candles) == 0 || len(pats) == 0 {
-		return 0, 0, nil
+func nextSessionPatternDecisionScore(candles []ohlcv.Candle, pats []ohlcv.PatternResult, candidates []ohlcv.PatternResult) nextSessionPatternUniverseScore {
+	out := nextSessionPatternUniverseScore{}
+	if len(candles) == 0 || (len(pats) == 0 && len(candidates) == 0) {
+		return out
 	}
 	lastIndex := len(candles) - 1
 	bullish := 0.0
 	bearish := 0.0
-	active := 0
-	names := []string{}
+	seen := map[string]struct{}{}
+	evidence := []nextSessionWeightedEvidence{}
 	for _, pattern := range pats {
-		if !nextSessionRecentActionablePattern(pattern, lastIndex) {
+		weight, direction, ok := nextSessionPatternContribution(pattern, lastIndex, true)
+		if !ok {
 			continue
 		}
-		weight := mathutil.Clamp(firstPositiveFloat(pattern.SignalScore, pattern.CalibratedConfidence, pattern.Confidence), 0, 1)
-		if pattern.VolumeConfirmed {
-			weight *= 1.25
-		}
-		if strings.EqualFold(pattern.TradeValue, "high") || strings.EqualFold(pattern.TradeValue, "strong") {
-			weight *= 1.15
-		}
-		switch strings.ToLower(strings.TrimSpace(pattern.Direction)) {
-		case "bullish":
+		seen[nextSessionPatternUniverseKey(pattern)] = struct{}{}
+		if direction > 0 {
 			bullish += weight
-			active++
-		case "bearish":
+			out.Bullish++
+		} else {
 			bearish += weight
-			active++
-		default:
+			out.Bearish++
+		}
+		out.Active++
+		evidence = append(evidence, nextSessionWeightedEvidence{
+			Text:   fmt.Sprintf("%s %s %.0f%%", localize.PatternName(pattern.Name), localize.Direction(pattern.Direction), 100*weight),
+			Weight: weight,
+		})
+	}
+	for _, pattern := range candidates {
+		key := nextSessionPatternUniverseKey(pattern)
+		if _, ok := seen[key]; ok {
 			continue
 		}
-		if len(names) < 4 {
-			names = append(names, fmt.Sprintf("%s %s %.0f%%", localize.PatternName(pattern.Name), localize.Direction(pattern.Direction), 100*weight))
+		weight, direction, ok := nextSessionPatternContribution(pattern, lastIndex, false)
+		if !ok {
+			continue
 		}
+		seen[key] = struct{}{}
+		if direction > 0 {
+			bullish += weight
+			out.Bullish++
+		} else {
+			bearish += weight
+			out.Bearish++
+		}
+		out.Candidates++
+		evidence = append(evidence, nextSessionWeightedEvidence{
+			Text:   fmt.Sprintf("%s aday %s %.0f%%", localize.PatternName(pattern.Name), localize.Direction(pattern.Direction), 100*weight),
+			Weight: weight,
+		})
 	}
 	total := bullish + bearish
 	if total <= 0 {
-		return 0, active, names
+		return out
 	}
-	return mathutil.Clamp((bullish-bearish)/total, -1, 1), active, names
+	out.Score = mathutil.Clamp((bullish-bearish)/total, -1, 1)
+	out.Names = topNextSessionWeightedEvidence(evidence, 6)
+	return out
 }
 
-func nextSessionRecentActionablePattern(pattern ohlcv.PatternResult, lastIndex int) bool {
-	if pattern.Confidence < 0.55 && pattern.SignalScore < 0.55 && pattern.CalibratedConfidence < 0.55 {
-		return false
+func nextSessionPatternContribution(pattern ohlcv.PatternResult, lastIndex int, active bool) (float64, int, bool) {
+	direction := nextSessionPatternDirection(pattern.Direction)
+	if direction == 0 {
+		return 0, 0, false
 	}
-	if !pattern.Actionable && !pattern.Tradeable && pattern.TradeValue == "" {
-		return false
+	weight := mathutil.Clamp(firstPositiveFloat(pattern.SignalScore, pattern.CalibratedConfidence, pattern.Confidence), 0, 1)
+	if weight <= 0 {
+		return 0, 0, false
 	}
-	if pattern.EndIndex <= 0 {
-		return true
+	if pattern.EndIndex > 0 {
+		distance := lastIndex - pattern.EndIndex
+		if distance < 0 || distance > 5 {
+			return 0, 0, false
+		}
+		weight *= mathutil.Clamp(1-float64(distance)*0.12, 0.35, 1)
 	}
-	return lastIndex-pattern.EndIndex <= 5
+	if active {
+		if !pattern.Actionable && !pattern.Tradeable && pattern.TradeValue == "" {
+			weight *= 0.70
+		}
+	} else {
+		weight *= 0.55
+		if pattern.Actionable || pattern.Tradeable {
+			weight *= 1.20
+		}
+		if hasNextSessionPatternRejection(pattern, "not_current_completed_pattern") {
+			weight *= 0.65
+		}
+		if hasNextSessionPatternRejection(pattern, "calibrated_confidence_below_threshold") {
+			weight *= 0.70
+		}
+		if hasNextSessionPatternRejection(pattern, "backtest_metadata_not_ready") {
+			weight *= 0.85
+		}
+	}
+	if pattern.VolumeConfirmed {
+		weight *= 1.20
+	}
+	if strings.EqualFold(pattern.TradeValue, "high") || strings.EqualFold(pattern.TradeValue, "strong") {
+		weight *= 1.12
+	}
+	if pattern.BacktestReady && pattern.BacktestSampleSize > 0 {
+		switch {
+		case pattern.BacktestWinRate > 0 && pattern.BacktestWinRate < 0.45:
+			weight *= 0.55
+		case pattern.BacktestWinRate >= 0.55:
+			weight *= 1.10
+		}
+		if pattern.BacktestExpectancyR < 0 {
+			weight *= 0.65
+		} else if pattern.BacktestExpectancyR > 0.05 {
+			weight *= 1.08
+		}
+	}
+	return mathutil.Clamp(weight, 0, 1.25), direction, true
+}
+
+func nextSessionPatternDirection(direction string) int {
+	value := strings.ToLower(strings.TrimSpace(direction))
+	switch {
+	case strings.Contains(value, "bull") || strings.Contains(value, "long") || strings.Contains(value, "up"):
+		return 1
+	case strings.Contains(value, "bear") || strings.Contains(value, "short") || strings.Contains(value, "down"):
+		return -1
+	default:
+		return 0
+	}
+}
+
+func nextSessionPatternUniverseKey(pattern ohlcv.PatternResult) string {
+	return strings.Join([]string{
+		strings.ToLower(strings.TrimSpace(pattern.Name)),
+		strings.ToLower(strings.TrimSpace(pattern.Direction)),
+		fmt.Sprintf("%d", pattern.EndIndex),
+	}, "|")
+}
+
+func hasNextSessionPatternRejection(pattern ohlcv.PatternResult, reason string) bool {
+	for _, item := range pattern.RejectionReasons {
+		if strings.EqualFold(strings.TrimSpace(item), reason) {
+			return true
+		}
+	}
+	return false
+}
+
+func topNextSessionWeightedEvidence(items []nextSessionWeightedEvidence, limit int) []string {
+	if limit <= 0 || len(items) == 0 {
+		return nil
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if math.Abs(items[i].Weight-items[j].Weight) > 1e-9 {
+			return items[i].Weight > items[j].Weight
+		}
+		return items[i].Text < items[j].Text
+	})
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, item.Text)
+	}
+	return out
 }
 
 func firstPositiveFloat(values ...float64) float64 {
@@ -3032,7 +3407,7 @@ func ApplyFundamentalContextToNextSessionForecast(result SymbolAnalysis) SymbolA
 	}
 	forecast.Confidence = roundForecastMetric(mathutil.Clamp(forecast.Confidence+adjustment.confidenceAdj, 20, 78))
 	forecast.ConfidenceLabel = nextSessionConfidenceLabel(forecast.Confidence)
-	forecast.Model = "atr_gap_intraday_ewma_fundamental_v2"
+	forecast.Model = withForecastModelOverlay(forecast.Model, "atr_gap_intraday_ewma_fundamental_v2")
 	if forecast.Status == "" {
 		forecast.Status = "mathematically_consistent"
 	}
@@ -4870,6 +5245,7 @@ func nextSessionForecastBacktest(candles []ohlcv.Candle, assetType string, limit
 		}
 		rows = append(rows, NextSessionBacktestRow{
 			Date:               candles[nextIdx].Time.Format("2006-01-02"),
+			PreviousClose:      roundForecastPrice(prediction.LastClose),
 			ActualOpen:         roundForecastPrice(actualOpen),
 			PredictedOpen:      roundForecastPrice(prediction.PredictedOpen),
 			OpenAbsError:       roundForecastPrice(openAbs),
@@ -4968,6 +5344,7 @@ func nextSessionForecastBISTBulletinSelectedBacktest(records []datasource.DailyB
 		}
 		rows = append(rows, NextSessionBacktestRow{
 			Date:               actual.TradingDate,
+			PreviousClose:      roundForecastPrice(prediction.LastClose),
 			ActualOpen:         roundForecastPrice(actual.Open),
 			PredictedOpen:      roundForecastPrice(prediction.PredictedOpen),
 			OpenAbsError:       roundForecastPrice(openAbs),
@@ -5061,6 +5438,7 @@ func nextSessionForecastBISTBulletinVariantBacktest(records []datasource.DailyBu
 		}
 		rows = append(rows, NextSessionBacktestRow{
 			Date:               actual.TradingDate,
+			PreviousClose:      roundForecastPrice(prediction.LastClose),
 			ActualOpen:         roundForecastPrice(actual.Open),
 			PredictedOpen:      roundForecastPrice(prediction.PredictedOpen),
 			OpenAbsError:       roundForecastPrice(openAbs),
@@ -5168,6 +5546,7 @@ func nextSessionForecastBISTBulletinOpenAnchorVariantBacktest(records []datasour
 		}
 		rows = append(rows, NextSessionBacktestRow{
 			Date:               actual.TradingDate,
+			PreviousClose:      roundForecastPrice(basePrediction.LastClose),
 			ActualOpen:         roundForecastPrice(actual.Open),
 			PredictedOpen:      roundForecastPrice(predictedOpen),
 			OpenAbsError:       roundForecastPrice(openAbs),

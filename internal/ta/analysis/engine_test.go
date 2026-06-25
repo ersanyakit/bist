@@ -587,6 +587,49 @@ func TestBISTOpenAnchorKeepsCloseModelSeparate(t *testing.T) {
 	}
 }
 
+func TestWeakValidatedForecastDampsPointAndWidensInterval(t *testing.T) {
+	forecast := NextSessionForecast{
+		Computed:          true,
+		ForecastFor:       "2026-06-22",
+		LastClose:         100,
+		RawPredictedOpen:  104,
+		RawPredictedClose: 110,
+		PredictedOpen:     104,
+		PredictedClose:    110,
+		RawExpectedLow:    98,
+		RawExpectedHigh:   112,
+		ExpectedLow:       98,
+		ExpectedHigh:      112,
+		CloseP10:          99,
+		CloseP50:          110,
+		CloseP90:          111,
+		Confidence:        60,
+		ConfidenceLabel:   "medium",
+		DirectionBias:     "yükseliş",
+		BiasStrength:      "orta",
+		Model:             "separate_open_gap_close_intraday_v2",
+	}
+
+	got := calibrateWeakValidatedNextSessionForecast(forecast, nextSessionForecastBacktestMetrics{
+		samples:             60,
+		closeMAEPct:         2.60,
+		directionHitRatePct: 43,
+	}, ohlcv.AssetTypeEquity, "ASELS")
+
+	if got.PredictedClose >= 105 {
+		t.Fatalf("weak validation should damp close point toward last close: %+v", got)
+	}
+	if got.CloseP10 >= forecast.CloseP10 || got.CloseP90 <= forecast.CloseP90 {
+		t.Fatalf("weak validation should widen close interval: before=%+v after=%+v", forecast, got)
+	}
+	if !strings.Contains(got.Model, "weak_validation_calibration_v1") {
+		t.Fatalf("expected weak validation model marker: %+v", got)
+	}
+	if !containsString(got.Warnings, "weak_validation_point_forecast_damped_interval_widened") {
+		t.Fatalf("expected weak validation warning: %+v", got.Warnings)
+	}
+}
+
 func TestApplyTradablePriceStepToNextSessionForecastUsesBISTTick(t *testing.T) {
 	forecast := NextSessionForecast{
 		Computed:          true,
@@ -736,7 +779,7 @@ func TestApplyFundamentalContextToNextSessionForecastAddsProfessionalOverlay(t *
 	}
 
 	got := ApplyFundamentalContextToNextSessionForecast(result)
-	if got.NextSessionForecast.Model != "atr_gap_intraday_ewma_fundamental_v2" {
+	if !strings.Contains(got.NextSessionForecast.Model, "atr_gap_intraday_ewma_fundamental_v2") {
 		t.Fatalf("expected fundamental forecast model, got %+v", got.NextSessionForecast)
 	}
 	if got.NextSessionForecast.PredictedClose <= forecast.PredictedClose {
@@ -911,7 +954,9 @@ func TestNextSessionForecastTechnicalContextRejectsFailedTradePlan(t *testing.T)
 		forecast,
 		candles,
 		ohlcv.IndicatorSnapshot{ATR14: 12, RSI14: 58, MACD: 3, MACDSignal: 2, MACDHistogram: 1, EMA20: 390, EMA50: 380, Supertrend: 385, ChaikinMoneyFlow20: 0.10, StochasticK: 65},
+		nil,
 		[]ohlcv.PatternResult{{Name: "Bullish Engulfing", Direction: "bullish", Confidence: 0.84, Actionable: true, Tradeable: true, EndIndex: 1}},
+		nil,
 		supportresistance.Result{},
 		ohlcv.TradePlan{Rejected: true, RejectReason: "risk_reward_too_low", RiskRewardRatio: 1.2},
 		ohlcv.AssetTypeEquity,
@@ -926,6 +971,111 @@ func TestNextSessionForecastTechnicalContextRejectsFailedTradePlan(t *testing.T)
 	reasons := strings.Join(got.BiasReasons, "\n")
 	if !strings.Contains(reasons, "işlem planı reddedildi") || !strings.Contains(reasons, "Teknik karar kapısı") {
 		t.Fatalf("missing technical gate evidence:\n%s", reasons)
+	}
+}
+
+func TestNextSessionForecastUsesFullIndicatorUniverseForDirection(t *testing.T) {
+	candles := []ohlcv.Candle{
+		{Time: time.Date(2026, 6, 17, 0, 0, 0, 0, time.UTC), Open: 100, High: 103, Low: 99, Close: 101, Volume: 1_000_000},
+		{Time: time.Date(2026, 6, 18, 0, 0, 0, 0, time.UTC), Open: 101, High: 104, Low: 100, Close: 102, Volume: 1_100_000},
+	}
+	forecast := NextSessionForecast{
+		Computed:          true,
+		LastClose:         102,
+		RawPredictedOpen:  102.8,
+		RawPredictedClose: 104,
+		PredictedOpen:     102.8,
+		PredictedClose:    104,
+		OpenChangePct:     0.78,
+		CloseChangePct:    1.96,
+		RawExpectedLow:    100,
+		RawExpectedHigh:   105,
+		ExpectedLow:       100,
+		ExpectedHigh:      105,
+		Status:            "mathematically_consistent",
+		Quality:           "technical_model",
+		DirectionBias:     "yükseliş",
+		BiasStrength:      "orta",
+		Confidence:        67,
+		Model:             "separate_open_gap_close_intraday_v2",
+	}
+	got := applyNextSessionTechnicalDecisionContext(
+		forecast,
+		candles,
+		ohlcv.IndicatorSnapshot{ATR14: 2, RSI14: 65, MACD: 1, MACDSignal: 0.5, MACDHistogram: 0.5, EMA20: 100, EMA50: 99, Supertrend: 98},
+		[]ohlcv.IndicatorResult{
+			{Name: "RSI", Signal: "bearish", Confidence: 0.86, Computed: true},
+			{Name: "MACD Bearish Divergence", Signal: "bearish", Confidence: 0.82, Computed: true},
+			{Name: "CMF", Signal: "bearish", Confidence: 0.78, Computed: true},
+			{Name: "Proxy", Signal: "bullish", Confidence: 1, Computed: false},
+		},
+		nil,
+		nil,
+		supportresistance.Result{},
+		ohlcv.TradePlan{},
+		ohlcv.AssetTypeEquity,
+		"ASELS",
+	)
+	if got.IndicatorConsensus != "bearish" || got.CloseChangePct >= 0 {
+		t.Fatalf("full bearish indicator universe should recalibrate bullish point forecast: %+v", got)
+	}
+	reasons := strings.Join(got.BiasReasons, "\n")
+	if !strings.Contains(reasons, "Full indikatör evreni etkisi") || !strings.Contains(got.Model, "full_signal_universe_v1") {
+		t.Fatalf("full indicator universe evidence/model marker missing:\nmodel=%s\n%s", got.Model, reasons)
+	}
+}
+
+func TestNextSessionForecastUsesPatternCandidatesInCalculation(t *testing.T) {
+	candles := []ohlcv.Candle{
+		{Time: time.Date(2026, 6, 17, 0, 0, 0, 0, time.UTC), Open: 100, High: 103, Low: 99, Close: 101, Volume: 1_000_000},
+		{Time: time.Date(2026, 6, 18, 0, 0, 0, 0, time.UTC), Open: 101, High: 104, Low: 100, Close: 102, Volume: 1_100_000},
+	}
+	forecast := NextSessionForecast{
+		Computed:          true,
+		LastClose:         102,
+		RawPredictedOpen:  102.6,
+		RawPredictedClose: 103.5,
+		PredictedOpen:     102.6,
+		PredictedClose:    103.5,
+		OpenChangePct:     0.59,
+		CloseChangePct:    1.47,
+		RawExpectedLow:    100,
+		RawExpectedHigh:   105,
+		ExpectedLow:       100,
+		ExpectedHigh:      105,
+		Status:            "mathematically_consistent",
+		Quality:           "technical_model",
+		DirectionBias:     "yükseliş",
+		BiasStrength:      "orta",
+		Confidence:        65,
+		Model:             "separate_open_gap_close_intraday_v2",
+	}
+	got := applyNextSessionTechnicalDecisionContext(
+		forecast,
+		candles,
+		ohlcv.IndicatorSnapshot{ATR14: 2},
+		nil,
+		nil,
+		[]ohlcv.PatternResult{{
+			Name:                 "Bearish RSI Divergence",
+			Direction:            "bearish",
+			Confidence:           0.80,
+			CalibratedConfidence: 0.78,
+			SignalScore:          0.82,
+			EndIndex:             1,
+			RejectionReasons:     []string{"calibrated_confidence_below_threshold"},
+		}},
+		supportresistance.Result{},
+		ohlcv.TradePlan{},
+		ohlcv.AssetTypeEquity,
+		"ASELS",
+	)
+	if got.PatternConsensus != "bearish" || got.CloseChangePct >= 0 {
+		t.Fatalf("bearish pattern candidate should enter next-session calculation: %+v", got)
+	}
+	reasons := strings.Join(got.BiasReasons, "\n")
+	if !strings.Contains(reasons, "Full formasyon evreni etkisi") {
+		t.Fatalf("pattern candidate evidence missing:\n%s", reasons)
 	}
 }
 
