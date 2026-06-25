@@ -1,0 +1,27 @@
+{
+  "workflow_version": "1.2.0",
+  "timestamps": {"started": "2026-06-25T02:45:20Z", "last_updated": "2026-06-25T02:45:20Z", "completed": "2026-06-25T02:45:20Z"},
+  "mode": "initial_scan",
+  "scan_level": "exhaustive",
+  "project_root": "/unquale/projects/lab/ersany/bist",
+  "project_knowledge": "docs",
+  "repository_type": "monolith",
+  "project_types": [{"part_id": "hissebot", "project_type_id": "backend", "display_name": "Go Backend (BIST analiz motoru)"}],
+  "completed_steps": [
+    {"step": "step_1", "summary": "Monolith, 1 part, Go backend"},
+    {"step": "step_2", "summary": "5 mevcut docs bulundu"},
+    {"step": "step_3", "summary": "Tech stack: Go 1.26 / fiber v3 / dosya tabanli"},
+    {"step": "step_4", "summary": "API/komut + veri modelleri cikarildi (graf + targeted read)"},
+    {"step": "step_5", "summary": "Kaynak agaci dokumante edildi"},
+    {"step": "step_8", "summary": "architecture.md yazildi"},
+    {"step": "step_9", "summary": "Tum destek dokumanlari yazildi"},
+    {"step": "step_10", "summary": "index.md uretildi"},
+    {"step": "step_12", "summary": "Workflow tamamlandi"}
+  ],
+  "current_step": "completed",
+  "outputs_generated": [
+    "project-scan-report.json","index.md","project-overview.md","architecture.md",
+    "source-tree-analysis.md","api-contracts.md","data-models.md",
+    "development-guide.md","deployment-guide.md"
+  ]
+}
