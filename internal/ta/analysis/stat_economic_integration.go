@@ -270,7 +270,7 @@ func buildStatFactorModel(result SymbolAnalysis) StatisticalFactorModel {
 	qualityScore := firstPositive(result.Professional.ValueInvesting.QualityScore, result.Professional.SectorFinancials.Score, result.Professional.DataQuality)
 	valueScore := firstPositive(result.Professional.ValueInvesting.ValueScore, result.Professional.Valuation.FairValue.Confidence)
 	momentumScore := core.Clamp(50+q.Return.Return60DPct*0.9+q.Return.Return20DPct*0.45, 0, 100)
-	lowVolScore := core.Clamp(100-(q.Risk.AnnualizedVolatilityPct-18)*1.5, 0, 100)
+	lowVolScore := statLowVolatilityScore(result.AssetType, q.Risk.AnnualizedVolatilityPct)
 	out := StatisticalFactorModel{
 		MarketBeta60:             roundStat(m.Beta60),
 		MarketAlpha60AnnualPct:   roundStat(m.Alpha60 * 100),
@@ -306,13 +306,14 @@ func buildStatFactorModel(result SymbolAnalysis) StatisticalFactorModel {
 }
 
 func buildStatRegimeModel(closes, returns []float64, result SymbolAnalysis) StatisticalRegimeModel {
-	ewmaVol := ewmaVolatility(returns, 0.94) * math.Sqrt(252) * 100
-	garchVol := garchForecastVolatility(returns) * math.Sqrt(252) * 100
+	annualizationDays := quantAnnualizationDays(result.AssetType)
+	ewmaVol := ewmaVolatility(returns, 0.94) * math.Sqrt(annualizationDays) * 100
+	garchVol := garchForecastVolatility(returns) * math.Sqrt(annualizationDays) * 100
 	volClustering := squaredReturnAutocorrelation(returns)
 	nextProb, lastState, transitions := markovNextPositiveProbability(returns)
 	trend := trendRegime(closes)
 	drawdown := drawdownRegime(result.Quant.Risk.CurrentDrawdownLossPct)
-	volRegime := quantVolatilityRegime(firstPositive(garchVol, ewmaVol, result.Quant.Risk.AnnualizedVolatilityPct))
+	volRegime := quantVolatilityRegimeForAsset(result.AssetType, firstPositive(garchVol, ewmaVol, result.Quant.Risk.AnnualizedVolatilityPct))
 	score := 65.0
 	if trend == "uptrend" {
 		score += 12

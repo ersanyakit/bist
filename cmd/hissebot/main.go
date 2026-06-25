@@ -20,6 +20,7 @@ import (
 	"hissebot/internal/extraction"
 	"hissebot/internal/repositories/filedocuments"
 	"hissebot/internal/services/bistbulletindb"
+	"hissebot/internal/services/analysisreadiness"
 	"hissebot/internal/services/classification"
 	"hissebot/internal/services/comments"
 	"hissebot/internal/services/financials"
@@ -111,6 +112,62 @@ func runAudit(ctx context.Context, cfg config.Config, store *storage.EquityStore
 		})
 		if report.Status != "pass" {
 			return fmt.Errorf("enterprise readiness failed: score %.1f", report.Score)
+		}
+		return nil
+	case "analysis-readiness", "analysis", "decision-readiness":
+		fs := flag.NewFlagSet("audit analysis-readiness", flag.ExitOnError)
+		symbol := fs.String("symbol", "", "single BIST symbol, e.g. ASELS")
+		all := fs.Bool("all", false, "audit all equities in data/equities")
+		limit := fs.Int("limit", 0, "max symbol count, 0 means unlimited")
+		mode := fs.String("mode", "research", "readiness mode: research or production")
+		dbPath := fs.String("db", bistBulletinDBPath(cfg.DataDir), "BIST official OHLCV SQLite path")
+		sectors := fs.String("sectors", cfg.SectorClassificationsFile, "sector classifications JSON file")
+		out := fs.String("out", "", "optional JSON output file")
+		minBars := fs.Int("min-bars", 0, "minimum official daily bars; 0 uses mode default")
+		maxPriceAge := fs.Duration("max-price-age", 0, "maximum official close staleness; 0 uses mode default")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		symbols := splitCSV(*symbol)
+		if len(symbols) == 0 && !*all {
+			return errors.New("audit analysis-readiness requires -symbol or -all")
+		}
+		report, err := analysisreadiness.Run(ctx, cfg, store, analysisreadiness.Options{
+			Symbols:           symbols,
+			All:               *all,
+			Limit:             *limit,
+			Mode:              *mode,
+			BISTDBPath:        *dbPath,
+			SectorFile:        *sectors,
+			MinDailyBars:      *minBars,
+			MaxPriceStaleness: *maxPriceAge,
+		})
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(*out) != "" {
+			raw, err := json.MarshalIndent(report, "", "  ")
+			if err != nil {
+				return err
+			}
+			raw = append(raw, '\n')
+			if err := os.MkdirAll(filepath.Dir(*out), 0o755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(*out, raw, 0o644); err != nil {
+				return err
+			}
+		}
+		if err := printJSON(report); err != nil {
+			return err
+		}
+		_, _ = audit.Append(cfg.AuditLogPath, audit.Event{
+			Action:  "analysis_readiness_audit_completed",
+			Entity:  "analysis_readiness",
+			Details: map[string]any{"status": report.Status, "score": report.Score, "symbols": report.Symbols, "decision_ready": report.DecisionReady, "limited": report.Limited, "blocked": report.Blocked},
+		})
+		if report.Status == analysisreadiness.StatusBlocked {
+			return fmt.Errorf("analysis readiness blocked: score %.1f blocked=%d", report.Score, report.Blocked)
 		}
 		return nil
 	case "universe":

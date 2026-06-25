@@ -85,6 +85,7 @@ type SymbolAnalysis struct {
 	Professional            professional.Report               `json:"professional"`
 	Quant                   QuantAnalysis                     `json:"quant"`
 	StatEconomic            StatEconomicAnalysis              `json:"stat_economic"`
+	Advanced                AdvancedAnalysis                  `json:"advanced_analysis"`
 	FinTradeBench           fintradebench.Report              `json:"fintradebench"`
 	Behavioral              contrarian.Report                 `json:"behavioral"`
 	InvestorQA              investorqa.Report                 `json:"investor_qa"`
@@ -415,6 +416,7 @@ func (e *Engine) AnalyzeSymbol(ctx context.Context, req SymbolRequest) (SymbolAn
 	result.Professional = e.professionalReport(ctx, result, corporateActions)
 	result.Quant = BuildQuantAnalysis(result)
 	result.StatEconomic = BuildStatEconomicAnalysis(result)
+	result.Advanced = BuildAdvancedAnalysis(result)
 	if ftbTF, ok := selectFinTradeBenchTimeframe(result.Timeframes); ok {
 		result.FinTradeBench = fintradebench.Analyze(fintradebench.Input{
 			Symbol:       result.Symbol,

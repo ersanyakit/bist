@@ -83,6 +83,11 @@ func (w *FileReportWriter) WriteAnalysis(ctx context.Context, equitiesDir string
 			}
 		}
 	}
+	reportResult = ensureReportAnalysisLayers(reportResult)
+	canonical = reportResult
+	if !w.IncludeRawKAPData {
+		canonical.Professional.RawKAPData = nil
+	}
 	targetDir := AnalysisDirForAsset(equitiesDir, reportResult.AssetType, reportResult.Symbol, reportResult.AnalysisDate)
 	if err := EnsureDir(targetDir); err != nil {
 		return fmt.Errorf("ensure analysis directory: %w", err)
@@ -434,11 +439,32 @@ func sanitizeUnpublishedPointForecast(forecast analysis.NextSessionForecast) ana
 func refreshReportDecisionFields(result analysis.SymbolAnalysis) analysis.SymbolAnalysis {
 	result = normalizeReportCoverageScores(result)
 	result = applyKAPRawFinancialIntegrityGate(result)
+	result = ensureReportAnalysisLayers(result)
 	result.InvestorQA = analysis.BuildInvestorQAReport(result)
 	result.DecisionClassification = analysis.ClassifyDecision(result)
 	result = analysis.ApplyDecisionClassification(result)
 	result.DecisionSupport = analysis.BuildDecisionSupport(result)
 	result = analysis.ApplyNextSessionForecastQualityContext(result)
+	return result
+}
+
+func ensureReportAnalysisLayers(result analysis.SymbolAnalysis) analysis.SymbolAnalysis {
+	if result.Quant.Status == "" {
+		result.Quant = analysis.BuildQuantAnalysis(result)
+	}
+	if result.StatEconomic.Status == "" {
+		result.StatEconomic = analysis.BuildStatEconomicAnalysis(result)
+	}
+	if result.Advanced.Status == "" {
+		result.Advanced = analysis.BuildAdvancedAnalysis(result)
+	}
+	if result.DecisionSupport == nil && !isMarketOnlyResearchAsset(result.AssetType) {
+		if result.DecisionClassification.SchemaVersion == 0 {
+			result.DecisionClassification = analysis.ClassifyDecision(result)
+			result = analysis.ApplyDecisionClassification(result)
+		}
+		result.DecisionSupport = analysis.BuildDecisionSupport(result)
+	}
 	return result
 }
 
@@ -2535,6 +2561,7 @@ func turkishAnalysis(result analysis.SymbolAnalysis) map[string]any {
 		"zaman_dilimleri":            timeframes,
 		"quant_analiz":               turkishQuantAnalysis(result.Quant),
 		"istatistik_ekonomik_analiz": turkishStatEconomicAnalysis(result.StatEconomic),
+		"gelismis_faz_analizi":       turkishAdvancedAnalysis(result.Advanced),
 		"profesyonel_analiz":         turkishProfessional(result),
 		"yatirimci_soru_cevap":       turkishInvestorQA(result),
 		"davranissal_analiz":         turkishBehavioral(result),
@@ -2555,13 +2582,15 @@ func turkishAnalysis(result analysis.SymbolAnalysis) map[string]any {
 
 func turkishQuantAnalysis(q analysis.QuantAnalysis) map[string]any {
 	return map[string]any{
-		"hesaplandi":      q.Computed,
-		"durum":           q.Status,
-		"yontem":          q.Method,
-		"kaynak_periyot":  q.SourceTimeframe,
-		"ornek_baslangic": q.SampleStart,
-		"ornek_bitis":     q.SampleEnd,
-		"ornek_sayisi":    q.SampleCount,
+		"hesaplandi":                q.Computed,
+		"durum":                     q.Status,
+		"yontem":                    q.Method,
+		"kaynak_periyot":            q.SourceTimeframe,
+		"piyasa_saati":              q.MarketClock,
+		"yilliklandirma_gun_sayisi": q.AnnualizationDays,
+		"ornek_baslangic":           q.SampleStart,
+		"ornek_bitis":               q.SampleEnd,
+		"ornek_sayisi":              q.SampleCount,
 		"getiri": map[string]any{
 			"son_kapanis":                    q.Return.LastClose,
 			"getiri_1g_yuzde":                q.Return.Return1DPct,
@@ -2613,8 +2642,10 @@ func turkishQuantAnalysis(q analysis.QuantAnalysis) map[string]any {
 			"engeller":     reportLabels(q.Decision.Blockers),
 			"uyarilar":     reportLabels(q.Decision.Warnings),
 		},
-		"moduller": q.Modules,
-		"uyarilar": reportLabels(q.Warnings),
+		"hisse_profili":  q.EquityProfile,
+		"kripto_profili": q.CryptoProfile,
+		"moduller":       q.Modules,
+		"uyarilar":       reportLabels(q.Warnings),
 	}
 }
 
@@ -3236,6 +3267,42 @@ func turkishProfessionalPatterns(patterns []professional.TechnicalPattern) []map
 	return result
 }
 
+func turkishAdvancedAnalysis(a analysis.AdvancedAnalysis) map[string]any {
+	phases := make([]map[string]any, 0, len(a.Phases))
+	for _, phase := range a.Phases {
+		phases = append(phases, map[string]any{
+			"faz":             phase.Phase,
+			"durum":           phase.Status,
+			"skor":            phase.Score,
+			"hesaplandi":      phase.Computed,
+			"bloklayici":      phase.Blocking,
+			"eksikler":        reportLabels(phase.Missing),
+			"sonraki_adimlar": reportLabels(phase.NextSteps),
+		})
+	}
+	return map[string]any{
+		"hesaplandi":       a.Computed,
+		"durum":            a.Status,
+		"bilesik_skor":     a.CompositeScore,
+		"production_ready": a.ProductionReady,
+		"karar_etkisi":     a.DecisionImpact,
+		"fazlar":           phases,
+		"production": map[string]any{
+			"durum":             a.Production.Status,
+			"karar":             a.Production.Decision,
+			"skor":              a.Production.Score,
+			"veri_kapisi":       a.Production.DataGate,
+			"validasyon_kapisi": a.Production.ValidationGate,
+			"risk_kapisi":       a.Production.RiskGate,
+			"degerleme_kapisi":  a.Production.ValuationGate,
+			"execution_kapisi":  a.Production.ExecutionGate,
+			"insan_incelemesi":  a.Production.HumanReviewRequired,
+			"rapor_hash":        a.Production.ReportHash,
+		},
+		"uyarilar": reportLabels(a.Warnings),
+	}
+}
+
 func turkishProfessional(result analysis.SymbolAnalysis) map[string]any {
 	pro := result.Professional
 	scenarios := make([]map[string]any, 0, len(pro.Scenarios))
@@ -3781,7 +3848,7 @@ func signalSource(signal string, source string) string {
 func indicatorStatusExplanation(indicator ohlcv.IndicatorResult) string {
 	switch {
 	case indicator.Signal == "requires_external_data":
-		return "Bu indikatör tek varlık OHLCV verisiyle güvenilir hesaplanamaz; order book, opsiyon, piyasa geneli, on-chain veya profil verisi gibi ek veri ister."
+		return "Bu indikatör tek varlık OHLCV verisiyle güvenilir hesaplanamaz; order book, piyasa geneli, on-chain, derivatives veya profil verisi gibi ek veri ister."
 	case indicator.Signal == "insufficient_data":
 		return "Bu indikatör için gerekli minimum tamamlanmış mum sayısı yok; değer ve sinyal hesaplanmadı."
 	case indicator.Signal == "proxy_only":

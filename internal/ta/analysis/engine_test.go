@@ -96,6 +96,12 @@ func TestAnalyzeSymbolBuildsCompleteTimeframeContract(t *testing.T) {
 	if result.StatEconomic.Regime.GARCHVolatilityForecastPct <= 0 || result.StatEconomic.DataIntegrity.Score <= 0 {
 		t.Fatalf("expected stat/economic diagnostics: %+v", result.StatEconomic)
 	}
+	if !result.Advanced.Computed || result.Advanced.CompositeScore <= 0 || len(result.Advanced.Phases) < 10 {
+		t.Fatalf("expected advanced phase analysis: %+v", result.Advanced)
+	}
+	if result.Advanced.Production.ReportHash == "" {
+		t.Fatalf("expected advanced production audit hash: %+v", result.Advanced.Production)
+	}
 	if !result.NextSessionForecast.Computed || result.NextSessionForecast.PredictedOpen <= 0 || result.NextSessionForecast.PredictedClose <= 0 {
 		t.Fatalf("expected symbol-level next-session open/close forecast: %+v", result.NextSessionForecast)
 	}

@@ -6,29 +6,36 @@ import (
 	"strings"
 
 	"hissebot/internal/quant/core"
+	cryptoquant "hissebot/internal/quant/crypto"
+	equityquant "hissebot/internal/quant/equity"
 	"hissebot/internal/quant/portfolio"
 	"hissebot/internal/ta/ohlcv"
 )
 
 const (
 	quantTradingDaysPerYear = 252.0
+	quantCryptoDaysPerYear  = 365.0
 	quantConfidenceLevel    = 0.95
 )
 
 type QuantAnalysis struct {
-	Computed        bool                  `json:"computed"`
-	Status          string                `json:"status,omitempty"`
-	Method          string                `json:"method,omitempty"`
-	SourceTimeframe string                `json:"source_timeframe,omitempty"`
-	SampleStart     string                `json:"sample_start,omitempty"`
-	SampleEnd       string                `json:"sample_end,omitempty"`
-	SampleCount     int                   `json:"sample_count,omitempty"`
-	Return          QuantReturnMetrics    `json:"return_metrics"`
-	Risk            QuantRiskMetrics      `json:"risk_metrics"`
-	Benchmark       QuantBenchmarkMetrics `json:"benchmark_metrics"`
-	Decision        QuantDecision         `json:"decision"`
-	Modules         []QuantModuleCoverage `json:"modules,omitempty"`
-	Warnings        []string              `json:"warnings,omitempty"`
+	Computed          bool                  `json:"computed"`
+	Status            string                `json:"status,omitempty"`
+	Method            string                `json:"method,omitempty"`
+	SourceTimeframe   string                `json:"source_timeframe,omitempty"`
+	MarketClock       string                `json:"market_clock,omitempty"`
+	AnnualizationDays float64               `json:"annualization_days,omitempty"`
+	SampleStart       string                `json:"sample_start,omitempty"`
+	SampleEnd         string                `json:"sample_end,omitempty"`
+	SampleCount       int                   `json:"sample_count,omitempty"`
+	Return            QuantReturnMetrics    `json:"return_metrics"`
+	Risk              QuantRiskMetrics      `json:"risk_metrics"`
+	Benchmark         QuantBenchmarkMetrics `json:"benchmark_metrics"`
+	EquityProfile     *equityquant.Report   `json:"equity_profile,omitempty"`
+	CryptoProfile     *cryptoquant.Report   `json:"crypto_profile,omitempty"`
+	Decision          QuantDecision         `json:"decision"`
+	Modules           []QuantModuleCoverage `json:"modules,omitempty"`
+	Warnings          []string              `json:"warnings,omitempty"`
 }
 
 type QuantReturnMetrics struct {
@@ -100,15 +107,18 @@ func BuildQuantAnalysis(result SymbolAnalysis) QuantAnalysis {
 		tf, ok = selectFinTradeBenchTimeframe(result.Timeframes)
 		source = tf.Timeframe
 	}
+	annualizationDays := quantAnnualizationDays(result.AssetType)
 	out := QuantAnalysis{
-		Status:          "not_computed",
-		Method:          "quant_core_returns_plus_portfolio_risk",
-		SourceTimeframe: source,
+		Status:            "not_computed",
+		Method:            "equity_crypto_quant_risk_features",
+		SourceTimeframe:   source,
+		MarketClock:       quantMarketClock(result.AssetType),
+		AnnualizationDays: annualizationDays,
 		Benchmark: QuantBenchmarkMetrics{
 			Symbol: strings.TrimSpace(result.Professional.Market.BenchmarkSymbol),
 			Error:  strings.TrimSpace(result.Professional.Market.BenchmarkError),
 		},
-		Modules: quantModuleCoverage(false, result.Professional.Market.BenchmarkAvailable),
+		Modules: quantModuleCoverage(false, result.Professional.Market.BenchmarkAvailable, result.AssetType),
 	}
 	if !ok || len(tf.Candles) < 3 {
 		out.Warnings = append(out.Warnings, "quant_requires_at_least_3_candles")
@@ -122,14 +132,15 @@ func BuildQuantAnalysis(result SymbolAnalysis) QuantAnalysis {
 	}
 	out.Computed = true
 	out.Status = "computed"
-	out.Modules = quantModuleCoverage(true, result.Professional.Market.BenchmarkAvailable)
+	out.Modules = quantModuleCoverage(true, result.Professional.Market.BenchmarkAvailable, result.AssetType)
 	out.SampleCount = len(returns)
 	out.SampleStart = tf.Candles[len(tf.Candles)-len(returns)-1].Time.Format("2006-01-02")
 	out.SampleEnd = tf.Candles[len(tf.Candles)-1].Time.Format("2006-01-02")
-	out.Return = quantReturnMetrics(closes, returns)
-	out.Risk = quantRiskMetrics(closes, returns)
+	out.Return = quantReturnMetrics(closes, returns, annualizationDays)
+	out.Risk = quantRiskMetrics(closes, returns, annualizationDays, result.AssetType)
 	out.Benchmark = quantBenchmarkMetrics(result)
-	out.Decision = quantDecision(out.Return, out.Risk, out.Benchmark)
+	out.EquityProfile, out.CryptoProfile = quantAssetProfiles(result, out)
+	out.Decision = quantDecision(result.AssetType, out.Return, out.Risk, out.Benchmark)
 	out.Warnings = append(out.Warnings, out.Decision.Warnings...)
 	return out
 }
@@ -155,7 +166,7 @@ func quantFiniteReturns(values []float64) []float64 {
 	return out
 }
 
-func quantReturnMetrics(closes, returns []float64) QuantReturnMetrics {
+func quantReturnMetrics(closes, returns []float64, annualizationDays float64) QuantReturnMetrics {
 	last := closes[len(closes)-1]
 	positive := 0
 	for _, r := range returns {
@@ -172,13 +183,13 @@ func quantReturnMetrics(closes, returns []float64) QuantReturnMetrics {
 		Return120DPct:           roundQuant(quantWindowReturnPct(closes, 120)),
 		Return252DPct:           roundQuant(quantWindowReturnPct(closes, 252)),
 		MeanDailyReturnPct:      roundQuant(core.Mean(returns) * 100),
-		AnnualizedReturnPct:     roundQuant(core.Mean(returns) * quantTradingDaysPerYear * 100),
-		CAGRPct:                 roundQuant(quantCAGRPct(closes)),
+		AnnualizedReturnPct:     roundQuant(core.Mean(returns) * annualizationDays * 100),
+		CAGRPct:                 roundQuant(quantCAGRPct(closes, annualizationDays)),
 		PositiveSessionRatioPct: roundQuant(100 * float64(positive) / float64(len(returns))),
 	}
 }
 
-func quantRiskMetrics(closes, returns []float64) QuantRiskMetrics {
+func quantRiskMetrics(closes, returns []float64, annualizationDays float64, assetType string) QuantRiskMetrics {
 	mean := core.Mean(returns)
 	dailyVol := core.StdDev(returns, true)
 	downside := make([]float64, 0, len(returns))
@@ -191,7 +202,7 @@ func quantRiskMetrics(closes, returns []float64) QuantRiskMetrics {
 	paramVaR := portfolio.ParametricVaR(mean, dailyVol, quantConfidenceLevel)
 	maxDrawdownLoss := -maxDD * 100
 	currentDrawdownLoss := quantCurrentDrawdownLossPct(closes)
-	annualReturn := mean * quantTradingDaysPerYear
+	annualReturn := mean * annualizationDays
 	calmar := 0.0
 	if maxDrawdownLoss > 0 {
 		calmar = annualReturn / (maxDrawdownLoss / 100)
@@ -200,10 +211,11 @@ func quantRiskMetrics(closes, returns []float64) QuantRiskMetrics {
 	expected := []float64{mean}
 	covariance := [][]float64{{variance}}
 	riskReport := portfolio.ComprehensiveRiskAnalysis([]float64{1}, expected, covariance, returns, quantConfidenceLevel, 0)
+	annualizedVolPct := dailyVol * math.Sqrt(annualizationDays) * 100
 	return QuantRiskMetrics{
 		DailyVolatilityPct:         roundQuant(dailyVol * 100),
-		AnnualizedVolatilityPct:    roundQuant(dailyVol * math.Sqrt(quantTradingDaysPerYear) * 100),
-		DownsideVolatilityPct:      roundQuant(core.StdDev(downside, true) * math.Sqrt(quantTradingDaysPerYear) * 100),
+		AnnualizedVolatilityPct:    roundQuant(annualizedVolPct),
+		DownsideVolatilityPct:      roundQuant(core.StdDev(downside, true) * math.Sqrt(annualizationDays) * 100),
 		HistoricalVaR95Pct:         roundQuant(riskReport.VaR * 100),
 		HistoricalCVaR95Pct:        roundQuant(riskReport.CVaR * 100),
 		ParametricVaR95Pct:         roundQuant(paramVaR * 100),
@@ -214,7 +226,7 @@ func quantRiskMetrics(closes, returns []float64) QuantRiskMetrics {
 		CalmarRatio:                roundQuant(calmar),
 		Skewness:                   roundQuant(quantSkewness(returns)),
 		ExcessKurtosis:             roundQuant(quantExcessKurtosis(returns)),
-		VolatilityRegime:           quantVolatilityRegime(dailyVol * math.Sqrt(quantTradingDaysPerYear) * 100),
+		VolatilityRegime:           quantVolatilityRegimeForAsset(assetType, annualizedVolPct),
 		RiskBudgetOneDayVaRPer100K: roundQuant(riskReport.VaR * 100000),
 	}
 }
@@ -233,11 +245,23 @@ func quantBenchmarkMetrics(result SymbolAnalysis) QuantBenchmarkMetrics {
 	}
 }
 
-func quantDecision(ret QuantReturnMetrics, risk QuantRiskMetrics, benchmark QuantBenchmarkMetrics) QuantDecision {
+func quantDecision(assetType string, ret QuantReturnMetrics, risk QuantRiskMetrics, benchmark QuantBenchmarkMetrics) QuantDecision {
+	volBase := 22.0
+	varBase := 2.5
+	drawdownBase := 20.0
+	varWarn := 5.0
+	drawdownWarn := 35.0
+	if ohlcv.IsCryptoAssetType(assetType) {
+		volBase = 65
+		varBase = 6
+		drawdownBase = 42
+		varWarn = 8
+		drawdownWarn = 55
+	}
 	riskScore := 100.0
-	riskScore -= core.Clamp((risk.AnnualizedVolatilityPct-22)*1.15, 0, 32)
-	riskScore -= core.Clamp((risk.HistoricalVaR95Pct-2.5)*8, 0, 26)
-	riskScore -= core.Clamp((risk.MaxDrawdownLossPct-20)*0.85, 0, 24)
+	riskScore -= core.Clamp((risk.AnnualizedVolatilityPct-volBase)*1.15, 0, 32)
+	riskScore -= core.Clamp((risk.HistoricalVaR95Pct-varBase)*8, 0, 26)
+	riskScore -= core.Clamp((risk.MaxDrawdownLossPct-drawdownBase)*0.85, 0, 24)
 	if benchmark.Available && benchmark.Beta60 > 1.25 {
 		riskScore -= core.Clamp((benchmark.Beta60-1.25)*24, 0, 10)
 	}
@@ -283,10 +307,10 @@ func quantDecision(ret QuantReturnMetrics, risk QuantRiskMetrics, benchmark Quan
 		decision.Suitability = "izleme_listesi"
 		decision.Warnings = append(decision.Warnings, "quant skor karar için sınırlı")
 	}
-	if risk.HistoricalVaR95Pct >= 5 {
+	if risk.HistoricalVaR95Pct >= varWarn {
 		decision.Warnings = append(decision.Warnings, "1 günlük VaR yüksek")
 	}
-	if risk.MaxDrawdownLossPct >= 35 {
+	if risk.MaxDrawdownLossPct >= drawdownWarn {
 		decision.Warnings = append(decision.Warnings, "tarihsel maksimum düşüş yüksek")
 	}
 	if benchmark.Available && benchmark.RelativeStrength60Pct < -5 {
@@ -309,7 +333,7 @@ func quantDecisionSummary(decision QuantDecision, ret QuantReturnMetrics, risk Q
 	return strings.Join(parts, "; ") + "."
 }
 
-func quantModuleCoverage(computed bool, benchmarkAvailable bool) []QuantModuleCoverage {
+func quantModuleCoverage(computed bool, benchmarkAvailable bool, assetType string) []QuantModuleCoverage {
 	status := "not_computed"
 	if computed {
 		status = "computed"
@@ -318,13 +342,59 @@ func quantModuleCoverage(computed bool, benchmarkAvailable bool) []QuantModuleCo
 	if benchmarkAvailable {
 		benchmarkStatus = "computed"
 	}
+	equityStatus := "not_applicable"
+	cryptoStatus := "not_applicable"
+	if ohlcv.NormalizeAssetType(assetType) == ohlcv.AssetTypeEquity {
+		equityStatus = status
+	}
+	if ohlcv.IsCryptoAssetType(assetType) {
+		cryptoStatus = status
+	}
 	return []QuantModuleCoverage{
 		{Name: "statistics", Package: "internal/quant/core", Status: status, Evidence: "returns, volatility, quantiles"},
 		{Name: "portfolio_risk", Package: "internal/quant/portfolio", Status: status, Evidence: "VaR, CVaR, Sharpe, Sortino, drawdown"},
 		{Name: "benchmark_factor", Package: "internal/ta/professional + internal/quant/core", Status: benchmarkStatus, Evidence: "beta, alpha, correlation, relative strength"},
-		{Name: "pricing_options", Package: "internal/quant/options", Status: "requires_option_chain", Evidence: "stock options/varant chain gelirse IV ve Greeks hesaplanabilir"},
-		{Name: "rates_discounting", Package: "internal/quant/rates", Status: "available_for_valuation", Evidence: "iskonto/forward curve değerleme katmanında kullanılabilir"},
+		{Name: "equity_profile", Package: "internal/quant/equity", Status: equityStatus, Evidence: "verified close, benchmark, financial/KAP evidence, equity risk budget"},
+		{Name: "crypto_profile", Package: "internal/quant/crypto", Status: cryptoStatus, Evidence: "24/7 annualization, crypto context, leverage/market-structure risk budget"},
 	}
+}
+
+func quantAssetProfiles(result SymbolAnalysis, q QuantAnalysis) (*equityquant.Report, *cryptoquant.Report) {
+	if ohlcv.NormalizeAssetType(result.AssetType) == ohlcv.AssetTypeEquity {
+		profile := equityquant.Evaluate(equityquant.Input{
+			VerifiedCloseAvailable:   result.PriceQuality != nil && result.PriceQuality.ReadyForVerifiedClose,
+			BenchmarkAvailable:       q.Benchmark.Available,
+			FinancialEvidencePresent: result.Professional.ValueInvesting.Computed || result.Professional.DataGovernance.ProductionReady,
+			KAPPDFEvidencePresent:    result.Professional.KAPPDFIngest.Computed && result.Professional.KAPPDFIngest.AnalysisUsableCount > 0,
+			Beta60:                   q.Benchmark.Beta60,
+			Alpha60AnnualPct:         q.Benchmark.Alpha60AnnualPct,
+			RelativeStrength60Pct:    q.Benchmark.RelativeStrength60Pct,
+			Return60Pct:              q.Return.Return60DPct,
+			AnnualizedVolatilityPct:  q.Risk.AnnualizedVolatilityPct,
+			HistoricalVaR95Pct:       q.Risk.HistoricalVaR95Pct,
+			MaxDrawdownLossPct:       q.Risk.MaxDrawdownLossPct,
+		})
+		return &profile, nil
+	}
+	if ohlcv.IsCryptoAssetType(result.AssetType) {
+		ctx := result.Professional.CryptoContext
+		profile := cryptoquant.Evaluate(cryptoquant.Input{
+			OnChainAvailable:        ctx.OnChain.Available,
+			DerivativesAvailable:    ctx.Derivatives.Available,
+			ExchangeFlowAvailable:   ctx.ExchangeFlow.Available,
+			NewsSentimentAvailable:  ctx.NewsSentiment.Available,
+			ContextCoverageScore:    result.Professional.Coverage.Score,
+			BenchmarkAvailable:      q.Benchmark.Available,
+			Beta60:                  q.Benchmark.Beta60,
+			RelativeStrength60Pct:   q.Benchmark.RelativeStrength60Pct,
+			Return60Pct:             q.Return.Return60DPct,
+			AnnualizedVolatilityPct: q.Risk.AnnualizedVolatilityPct,
+			HistoricalVaR95Pct:      q.Risk.HistoricalVaR95Pct,
+			MaxDrawdownLossPct:      q.Risk.MaxDrawdownLossPct,
+		})
+		return nil, &profile
+	}
+	return nil, nil
 }
 
 func applyQuantAdjustment(score float64, quant QuantAnalysis) float64 {
@@ -350,11 +420,11 @@ func quantWindowReturnPct(closes []float64, window int) float64 {
 	return (last/base - 1) * 100
 }
 
-func quantCAGRPct(closes []float64) float64 {
+func quantCAGRPct(closes []float64, annualizationDays float64) float64 {
 	if len(closes) < 2 || closes[0] <= 0 {
 		return 0
 	}
-	years := float64(len(closes)-1) / quantTradingDaysPerYear
+	years := float64(len(closes)-1) / annualizationDays
 	if years <= 0 {
 		return 0
 	}
@@ -422,6 +492,36 @@ func quantVolatilityRegime(annualizedVolPct float64) string {
 	default:
 		return "extreme"
 	}
+}
+
+func quantVolatilityRegimeForAsset(assetType string, annualizedVolPct float64) string {
+	if ohlcv.IsCryptoAssetType(assetType) {
+		switch {
+		case annualizedVolPct <= 45:
+			return "low"
+		case annualizedVolPct <= 85:
+			return "normal"
+		case annualizedVolPct <= 125:
+			return "high"
+		default:
+			return "extreme"
+		}
+	}
+	return quantVolatilityRegime(annualizedVolPct)
+}
+
+func quantAnnualizationDays(assetType string) float64 {
+	if ohlcv.IsCryptoAssetType(assetType) {
+		return quantCryptoDaysPerYear
+	}
+	return quantTradingDaysPerYear
+}
+
+func quantMarketClock(assetType string) string {
+	if ohlcv.IsCryptoAssetType(assetType) {
+		return "24_7"
+	}
+	return "exchange_sessions"
 }
 
 func roundQuant(value float64) float64 {

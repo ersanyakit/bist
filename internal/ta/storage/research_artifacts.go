@@ -24,25 +24,57 @@ func writeResearchArtifacts(targetDir, equitiesDir string, result analysis.Symbo
 		return writeMarketResearchArtifacts(targetDir, result)
 	}
 	artifacts := map[string]any{
-		"company_master_profile.json":          companyMasterProfileArtifact(result),
-		"source_evidence_index.json":           sourceEvidenceIndexArtifact(equitiesDir, result),
-		"kap_pdf_reportable_data_index.json":   kapPDFReportableDataArtifact(result),
-		"kap_pdf_financial_analysis.json":      kapPDFFinancialAnalysisArtifact(result),
-		"financial_statements_normalized.json": financialStatementsNormalizedArtifact(equitiesDir, result),
-		"financial_quality_report.json":        financialQualityArtifact(result),
-		"sector_metrics.json":                  sectorMetricsArtifact(result),
-		"peer_comparison.json":                 peerComparisonArtifact(result),
-		"valuation_model.json":                 valuationModelArtifact(result),
-		"buffett_value_checklist.json":         buffettValueChecklistArtifact(result),
-		"investment_thesis.json":               investmentThesisArtifact(result),
-		"decision_support_standard.json":       decisionSupportArtifact(result),
-		"quant_risk_report.json":               quantRiskReportArtifact(result),
-		"stat_economic_report.json":            statEconomicReportArtifact(result),
-		"risk_matrix.json":                     riskMatrixArtifact(result),
-		"catalyst_calendar.json":               catalystCalendarArtifact(result),
-		"technical_trade_plan.json":            technicalTradePlanArtifact(result),
-		"investment_committee_memo.json":       investmentCommitteeMemoArtifact(equitiesDir, result),
-		"quality_control_report.json":          qualityControlArtifact(equitiesDir, result),
+		"company_master_profile.json":           companyMasterProfileArtifact(result),
+		"source_evidence_index.json":            sourceEvidenceIndexArtifact(equitiesDir, result),
+		"kap_pdf_reportable_data_index.json":    kapPDFReportableDataArtifact(result),
+		"kap_pdf_financial_analysis.json":       kapPDFFinancialAnalysisArtifact(result),
+		"financial_statements_normalized.json":  financialStatementsNormalizedArtifact(equitiesDir, result),
+		"financial_quality_report.json":         financialQualityArtifact(result),
+		"sector_metrics.json":                   sectorMetricsArtifact(result),
+		"peer_comparison.json":                  peerComparisonArtifact(result),
+		"valuation_model.json":                  valuationModelArtifact(result),
+		"buffett_value_checklist.json":          buffettValueChecklistArtifact(result),
+		"investment_thesis.json":                investmentThesisArtifact(result),
+		"decision_support_standard.json":        decisionSupportArtifact(result),
+		"quant_risk_report.json":                quantRiskReportArtifact(result),
+		"stat_economic_report.json":             statEconomicReportArtifact(result),
+		"data_quality_report.json":              advancedResearchArtifact(result, "data_quality", result.Advanced.DataQuality),
+		"price_reconciliation_report.json":      advancedResearchArtifact(result, "price_reconciliation", result.Advanced.PriceReconcile),
+		"corporate_action_audit.json":           advancedResearchArtifact(result, "corporate_action_audit", result.Advanced.CorporateAction),
+		"point_in_time_lineage.json":            advancedResearchArtifact(result, "point_in_time_lineage", result.Advanced.PointInTime),
+		"factor_model_report.json":              advancedResearchArtifact(result, "factor_model", result.Advanced.FactorModel),
+		"relative_strength_report.json":         relativeStrengthArtifact(result),
+		"active_return_decomposition.json":      activeReturnDecompositionArtifact(result),
+		"volatility_regime_report.json":         advancedResearchArtifact(result, "volatility_regime", result.Advanced.Volatility),
+		"tail_risk_report.json":                 tailRiskArtifact(result),
+		"stress_test_report.json":               stressTestArtifact(result),
+		"macro_sensitivity_report.json":         advancedResearchArtifact(result, "macro_sensitivity", result.Advanced.Macro),
+		"macro_regime_report.json":              macroRegimeArtifact(result),
+		"macro_scenario_stress.json":            macroScenarioStressArtifact(result),
+		"financial_quality_scorecard.json":      advancedResearchArtifact(result, "financial_quality_scorecard", result.Advanced.FinancialQuality),
+		"accounting_risk_report.json":           accountingRiskArtifact(result),
+		"sector_specific_financial_report.json": sectorSpecificFinancialArtifact(result),
+		"valuation_ensemble_report.json":        advancedResearchArtifact(result, "valuation_ensemble", result.Advanced.Valuation),
+		"valuation_sensitivity_table.json":      valuationSensitivityArtifact(result),
+		"fair_value_bridge.json":                fairValueBridgeArtifact(result),
+		"event_study_report.json":               advancedResearchArtifact(result, "event_study", result.Advanced.EventStudy),
+		"kap_materiality_score.json":            kapMaterialityArtifact(result),
+		"news_event_impact_report.json":         newsEventImpactArtifact(result),
+		"forecast_validation_report.json":       forecastValidationArtifact(result),
+		"model_monitoring_report.json":          advancedResearchArtifact(result, "model_monitoring", result.Advanced.ModelMonitoring),
+		"champion_challenger_report.json":       championChallengerArtifact(result),
+		"liquidity_impact_report.json":          advancedResearchArtifact(result, "liquidity_impact", result.Advanced.LiquidityPortfolio),
+		"portfolio_fit_report.json":             portfolioFitArtifact(result),
+		"position_capacity_report.json":         positionCapacityArtifact(result),
+		"decision_audit_trail.json":             decisionAuditTrailArtifact(result),
+		"model_registry_snapshot.json":          modelRegistrySnapshotArtifact(result),
+		"production_readiness_report.json":      advancedResearchArtifact(result, "production_readiness", result.Advanced.Production),
+		"human_review_queue.json":               humanReviewQueueArtifact(result),
+		"risk_matrix.json":                      riskMatrixArtifact(result),
+		"catalyst_calendar.json":                catalystCalendarArtifact(result),
+		"technical_trade_plan.json":             technicalTradePlanArtifact(result),
+		"investment_committee_memo.json":        investmentCommitteeMemoArtifact(equitiesDir, result),
+		"quality_control_report.json":           qualityControlArtifact(equitiesDir, result),
 	}
 	for name, payload := range artifacts {
 		if err := WriteJSON(filepath.Join(targetDir, name), payload); err != nil {
@@ -69,6 +101,38 @@ var equityOnlyResearchArtifactNames = []string{
 	"buffett_value_checklist.json",
 	"investment_thesis.json",
 	"decision_support_standard.json",
+	"data_quality_report.json",
+	"price_reconciliation_report.json",
+	"corporate_action_audit.json",
+	"point_in_time_lineage.json",
+	"factor_model_report.json",
+	"relative_strength_report.json",
+	"active_return_decomposition.json",
+	"volatility_regime_report.json",
+	"tail_risk_report.json",
+	"stress_test_report.json",
+	"macro_sensitivity_report.json",
+	"macro_regime_report.json",
+	"macro_scenario_stress.json",
+	"financial_quality_scorecard.json",
+	"accounting_risk_report.json",
+	"sector_specific_financial_report.json",
+	"valuation_ensemble_report.json",
+	"valuation_sensitivity_table.json",
+	"fair_value_bridge.json",
+	"event_study_report.json",
+	"kap_materiality_score.json",
+	"news_event_impact_report.json",
+	"forecast_validation_report.json",
+	"model_monitoring_report.json",
+	"champion_challenger_report.json",
+	"liquidity_impact_report.json",
+	"portfolio_fit_report.json",
+	"position_capacity_report.json",
+	"decision_audit_trail.json",
+	"model_registry_snapshot.json",
+	"production_readiness_report.json",
+	"human_review_queue.json",
 	"catalyst_calendar.json",
 	"investment_committee_memo.json",
 	"quality_control_report.json",
@@ -850,6 +914,253 @@ func statEconomicReportArtifact(result analysis.SymbolAnalysis) map[string]any {
 	}
 }
 
+func advancedResearchArtifact(result analysis.SymbolAnalysis, module string, payload any) map[string]any {
+	return map[string]any{
+		"schema_version":           1,
+		"symbol":                   result.Symbol,
+		"asset_type":               result.AssetType,
+		"analysis_date":            result.AnalysisDate,
+		"module":                   module,
+		"advanced_schema_version":  result.Advanced.SchemaVersion,
+		"advanced_status":          result.Advanced.Status,
+		"advanced_composite_score": result.Advanced.CompositeScore,
+		"production_ready":         result.Advanced.ProductionReady,
+		"decision_impact":          result.Advanced.DecisionImpact,
+		"payload":                  payload,
+		"disclaimer":               firstNonEmptyReport(result.Disclaimer, ohlcv.Disclaimer),
+	}
+}
+
+func relativeStrengthArtifact(result analysis.SymbolAnalysis) map[string]any {
+	f := result.Advanced.FactorModel
+	return advancedResearchArtifact(result, "relative_strength", map[string]any{
+		"benchmark_available":             f.BenchmarkAvailable,
+		"sector_benchmark_available":      f.SectorBenchmarkAvailable,
+		"relative_strength_20_pct":        f.RelativeStrength20Pct,
+		"relative_strength_60_pct":        f.RelativeStrength60Pct,
+		"sector_relative_strength_60_pct": f.SectorRelativeStrength60Pct,
+		"market_beta_60":                  f.MarketBeta60,
+		"market_correlation_60":           f.MarketCorrelation60,
+		"status":                          f.Status,
+		"missing_inputs":                  f.MissingInputs,
+	})
+}
+
+func activeReturnDecompositionArtifact(result analysis.SymbolAnalysis) map[string]any {
+	f := result.Advanced.FactorModel
+	m := result.Professional.Market
+	return advancedResearchArtifact(result, "active_return_decomposition", map[string]any{
+		"stock_return_20_pct":        m.StockReturn20 * 100,
+		"benchmark_return_20_pct":    m.BenchmarkReturn20 * 100,
+		"active_return_20_pct":       f.ActiveReturn20Pct,
+		"stock_return_60_pct":        m.StockReturn60 * 100,
+		"benchmark_return_60_pct":    m.BenchmarkReturn60 * 100,
+		"active_return_60_pct":       f.ActiveReturn60Pct,
+		"market_alpha_60_annual_pct": f.MarketAlpha60AnnualPct,
+		"sector_alpha_60_annual_pct": f.SectorAlpha60AnnualPct,
+		"factor_exposures":           f.FactorExposures,
+	})
+}
+
+func tailRiskArtifact(result analysis.SymbolAnalysis) map[string]any {
+	v := result.Advanced.Volatility
+	t := result.StatEconomic.TailStress
+	return advancedResearchArtifact(result, "tail_risk", map[string]any{
+		"historical_var_95_pct":        t.VaR95Pct,
+		"historical_cvar_95_pct":       t.CVaR95Pct,
+		"cornish_fisher_var_95_pct":    v.CornishFisherVaR95Pct,
+		"evt_tail_loss_pct":            v.EVTTailLossPct,
+		"worst_session_loss_pct":       t.WorstSessionLossPct,
+		"max_drawdown_loss_pct":        t.MaxDrawdownLossPct,
+		"stress_worst_case_return_pct": t.StressWorstCaseReturnPct,
+		"score":                        v.Score,
+		"status":                       v.Status,
+	})
+}
+
+func stressTestArtifact(result analysis.SymbolAnalysis) map[string]any {
+	v := result.Advanced.Volatility
+	return advancedResearchArtifact(result, "stress_test", map[string]any{
+		"stress_scenarios":    v.StressScenarios,
+		"bootstrap_scenarios": v.BootstrapScenarios,
+		"macro_scenarios":     result.Advanced.Macro.MacroStressScenarios,
+		"liquidity_impact":    result.Advanced.LiquidityPortfolio,
+	})
+}
+
+func macroRegimeArtifact(result analysis.SymbolAnalysis) map[string]any {
+	m := result.Advanced.Macro
+	return advancedResearchArtifact(result, "macro_regime", map[string]any{
+		"tcmb_regime":               m.TCMBRegime,
+		"sector_macro_profile":      m.SectorMacroProfile,
+		"point_in_time_safe":        m.PointInTimeSafe,
+		"forecast_impact_direction": m.ForecastImpactDirection,
+		"forecast_impact_severity":  m.ForecastImpactSeverity,
+		"score":                     m.Score,
+		"status":                    m.Status,
+		"warnings":                  m.Warnings,
+	})
+}
+
+func macroScenarioStressArtifact(result analysis.SymbolAnalysis) map[string]any {
+	return advancedResearchArtifact(result, "macro_scenario_stress", map[string]any{
+		"scenarios":      result.Advanced.Macro.MacroStressScenarios,
+		"stress_tests":   result.Advanced.Volatility.StressScenarios,
+		"missing_inputs": result.Advanced.Macro.MissingInputs,
+	})
+}
+
+func accountingRiskArtifact(result analysis.SymbolAnalysis) map[string]any {
+	f := result.Advanced.FinancialQuality
+	return advancedResearchArtifact(result, "accounting_risk", map[string]any{
+		"beneish_risk_proxy":          f.BeneishRiskProxy,
+		"altman_risk_proxy":           f.AltmanRiskProxy,
+		"accrual_quality_proxy_score": f.AccrualQualityProxyScore,
+		"earnings_persistence_score":  f.EarningsPersistenceScore,
+		"red_flags":                   f.RedFlags,
+		"warnings":                    f.Warnings,
+		"missing_inputs":              f.MissingInputs,
+	})
+}
+
+func sectorSpecificFinancialArtifact(result analysis.SymbolAnalysis) map[string]any {
+	return advancedResearchArtifact(result, "sector_specific_financial", map[string]any{
+		"profile":            result.Professional.SectorFinancials.Profile,
+		"profile_label":      result.Professional.SectorFinancials.ProfileLabel,
+		"score":              result.Advanced.FinancialQuality.Score,
+		"metrics":            result.Advanced.FinancialQuality.SectorSpecificMetrics,
+		"suppressed_metrics": result.Professional.SectorFinancials.SuppressedMetric,
+		"historical_ratios":  result.Professional.SectorFinancials.HistoricalRatios,
+		"warnings":           result.Professional.SectorFinancials.Warnings,
+	})
+}
+
+func valuationSensitivityArtifact(result analysis.SymbolAnalysis) map[string]any {
+	return advancedResearchArtifact(result, "valuation_sensitivity", map[string]any{
+		"sensitivity":    result.Advanced.Valuation.Sensitivity,
+		"models":         result.Advanced.Valuation.Models,
+		"missing_inputs": result.Advanced.Valuation.MissingInputs,
+	})
+}
+
+func fairValueBridgeArtifact(result analysis.SymbolAnalysis) map[string]any {
+	v := result.Advanced.Valuation
+	return advancedResearchArtifact(result, "fair_value_bridge", map[string]any{
+		"current_price":        v.CurrentPrice,
+		"bear_fair_value":      v.BearFairValue,
+		"base_fair_value":      v.BaseFairValue,
+		"bull_fair_value":      v.BullFairValue,
+		"expected_upside_pct":  v.ExpectedUpsidePct,
+		"margin_of_safety_pct": v.MarginOfSafetyPct,
+		"valuation_bridge":     result.Professional.InvestmentResearch.ValuationBridge,
+		"fair_value":           result.Professional.Valuation.FairValue,
+	})
+}
+
+func kapMaterialityArtifact(result analysis.SymbolAnalysis) map[string]any {
+	return advancedResearchArtifact(result, "kap_materiality", map[string]any{
+		"materiality_score": result.Advanced.EventStudy.MaterialityScore,
+		"event_count":       result.Advanced.EventStudy.EventCount,
+		"latest_events":     result.Advanced.EventStudy.LatestEvents,
+		"risk_flags":        result.Professional.Disclosure.RiskFlags,
+	})
+}
+
+func newsEventImpactArtifact(result analysis.SymbolAnalysis) map[string]any {
+	return advancedResearchArtifact(result, "news_event_impact", map[string]any{
+		"news_sentiment":            result.Professional.NewsSentiment,
+		"event_study":               result.Advanced.EventStudy,
+		"abnormal_return_proxy_pct": result.Advanced.EventStudy.AbnormalReturnProxyPct,
+		"volume_shift_proxy_pct":    result.Advanced.EventStudy.VolumeShiftProxyPct,
+	})
+}
+
+func forecastValidationArtifact(result analysis.SymbolAnalysis) map[string]any {
+	return advancedResearchArtifact(result, "forecast_validation", map[string]any{
+		"next_session_forecast": result.NextSessionForecast,
+		"model_monitoring":      result.Advanced.ModelMonitoring,
+		"validation":            result.StatEconomic.Validation,
+	})
+}
+
+func championChallengerArtifact(result analysis.SymbolAnalysis) map[string]any {
+	m := result.Advanced.ModelMonitoring
+	return advancedResearchArtifact(result, "champion_challenger", map[string]any{
+		"champion_model":   m.ChampionModel,
+		"challenger_model": m.ChallengerModel,
+		"drift_status":     m.DriftStatus,
+		"model_risk":       m.ModelRisk,
+		"score":            m.Score,
+		"status":           m.Status,
+	})
+}
+
+func portfolioFitArtifact(result analysis.SymbolAnalysis) map[string]any {
+	return advancedResearchArtifact(result, "portfolio_fit", map[string]any{
+		"liquidity_portfolio": result.Advanced.LiquidityPortfolio,
+		"portfolio_view":      result.InvestorQA.InstitutionalViews.Portfolio,
+		"quant_risk":          result.Quant.Risk,
+		"benchmark":           result.Quant.Benchmark,
+	})
+}
+
+func positionCapacityArtifact(result analysis.SymbolAnalysis) map[string]any {
+	l := result.Advanced.LiquidityPortfolio
+	return advancedResearchArtifact(result, "position_capacity", map[string]any{
+		"capacity_try_at_10pct_adv":    l.CapacityTRYAt10PctADV,
+		"days_to_exit_1m_try":          l.DaysToExit1MTRY,
+		"recommended_max_position_try": l.RecommendedMaxPositionTRY,
+		"portfolio_var_1d_per_100k":    l.PortfolioVaR1DayPer100K,
+		"market_impact_for_1m_try_bps": l.MarketImpactFor1MTRYBps,
+		"slippage_estimate_bps":        l.SlippageEstimateBps,
+		"warnings":                     l.Warnings,
+		"missing_inputs":               l.MissingInputs,
+	})
+}
+
+func decisionAuditTrailArtifact(result analysis.SymbolAnalysis) map[string]any {
+	return advancedResearchArtifact(result, "decision_audit_trail", map[string]any{
+		"production":       result.Advanced.Production,
+		"decision_support": result.DecisionSupport,
+		"classification":   result.DecisionClassification,
+		"phases":           result.Advanced.Phases,
+	})
+}
+
+func modelRegistrySnapshotArtifact(result analysis.SymbolAnalysis) map[string]any {
+	return advancedResearchArtifact(result, "model_registry_snapshot", map[string]any{
+		"model_registry_version": result.Advanced.Production.ModelRegistryVersion,
+		"report_hash":            result.Advanced.Production.ReportHash,
+		"models": []map[string]any{
+			{"name": "quant_core_returns_plus_portfolio_risk", "status": result.Quant.Status, "sample_count": result.Quant.SampleCount},
+			{"name": "stat_economic_consistency_v1", "status": result.StatEconomic.Status, "sample_count": result.StatEconomic.SampleCount},
+			{"name": result.Advanced.ModelMonitoring.ChampionModel, "status": result.Advanced.ModelMonitoring.Status, "drift": result.Advanced.ModelMonitoring.DriftStatus},
+		},
+	})
+}
+
+func humanReviewQueueArtifact(result analysis.SymbolAnalysis) map[string]any {
+	items := []map[string]any{}
+	for _, reason := range result.Advanced.Production.HumanReviewReasons {
+		items = append(items, map[string]any{
+			"reason":   reason,
+			"priority": "high",
+			"source":   "advanced.production_readiness",
+		})
+	}
+	for _, missing := range result.Advanced.Valuation.MissingInputs {
+		items = append(items, map[string]any{
+			"reason":   "valuation_missing_" + missing,
+			"priority": "medium",
+			"source":   "advanced.valuation_ensemble",
+		})
+	}
+	return advancedResearchArtifact(result, "human_review_queue", map[string]any{
+		"required": result.Advanced.Production.HumanReviewRequired,
+		"items":    items,
+	})
+}
+
 func riskMatrixArtifact(result analysis.SymbolAnalysis) map[string]any {
 	rows := []map[string]any{}
 	add := func(category, risk, probability, impact, mitigation string, early []string) {
@@ -892,6 +1203,12 @@ func riskMatrixArtifact(result analysis.SymbolAnalysis) map[string]any {
 	}
 	for _, warning := range result.StatEconomic.Warnings {
 		add("stat_economic", warning, "medium", "medium", "Istatistiksel/ekonomik tutarlilik kapisindaki eksikler kapatilmali.", []string{fmt.Sprintf("composite %.1f", result.StatEconomic.CompositeScore)})
+	}
+	for _, warning := range result.Advanced.Warnings {
+		add("advanced_analysis", warning, "medium", "medium", "Advanced faz kapilari production_readiness_report.json uzerinden kapatilmali.", []string{fmt.Sprintf("composite %.1f", result.Advanced.CompositeScore)})
+	}
+	for _, reason := range result.Advanced.Production.HumanReviewReasons {
+		add("production_readiness", reason, "medium", "high", "Human review queue kapanmadan production karari verilmemeli.", result.Advanced.Production.AuditTrail)
 	}
 	for _, warning := range result.Professional.KAPPDFIngest.Warnings {
 		add("data_quality", warning, "high", "medium", "PDF kalite kapisi ve insan inceleme kuyruğu ile temizlenmeli.", nil)
