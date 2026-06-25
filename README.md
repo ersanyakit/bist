@@ -4,6 +4,8 @@ PostgreSQL kullanmayan, Go tarafında lokal JSON dosyalarıyla çalışan port. 
 
 AI ajanları ve diğer projelerin repo verilerine dosya/HTTP/MCP yaklaşımıyla erişmesi için bkz. `docs/ai_access_guide.md`.
 
+Hisse analiz motorundaki eksikler, quant/stat-economic kapsami ve faz bazli yol haritasi icin bkz. `docs/analysis_engine_roadmap.md`.
+
 ## Komutlar
 
 ```bash
