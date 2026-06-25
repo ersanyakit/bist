@@ -33,6 +33,7 @@
 
 - [AI Erişim Rehberi](./ai_access_guide.md) — AI ajanlarının dosya/HTTP/MCP ile repo verisine erişimi
 - [Analiz Motoru Yol Haritası](./analysis_engine_roadmap.md) — quant/stat-ekonomik kapsam, faz planı
+- [QuantLib / Fincept Araştırma Planı](./quantlib_fincept_research_plan.md) — akademik doğrulama, reference validator, native Go/sidecar entegrasyon fazları
 - [BIST Veri Mimarisi](./bist_data_architecture.md) — veri kaynakları ve akış
 - [KAP Belge Analiz Mimarisi](./kap_document_analysis_architecture.md) — KAP belge zekası
 - [Kod İncelemesi (2026-06-25)](./review-2026-06-25.md) — mimari/kalite bulguları + düzeltmeler
