@@ -105,7 +105,8 @@ var canonicalFinancialLineCatalog = []LineDefinition{
 	lineDef("3CAC", "Faiz, Ücret, Prim, Komisyon ve Diğer Gelirler", "Interest, fee, premium, commission and other income", StatementIncome, "financial_sector_revenue"),
 	lineDef("3CAD", "Faiz, Ücret, Prim, Komisyon ve Diğer Giderler (-)", "Interest, fee, premium, commission and other expenses", StatementIncome, "financial_sector_cost"),
 	lineDef("3CAE", "Finans Sektörü Faaliyetlerinden Diğer Kar/Zarar", "Other profit/loss from financial operations", StatementIncome, "other_financial_operations_profit_loss"),
-	lineDef("3CAF", "Finans Sektörü Faaliyetlerinden Brüt Kar/Zarar", "Gross profit/loss from financial operations", StatementIncome, "gross_profit_from_financial_operations"),
+	lineDef("3CAF", "Finans Sektörü Faaliyetlerinden Brüt Kar/Zarar", "Gross profit/loss from financial operations", StatementIncome, "gross_profit_from_financial_operations", "Finans Sektörü Faaliyetlerinden Brüt Kâr/Zarar"),
+	lineDef("3CAFA", "Finans Sektörü Faaliyetlerinden Brüt Kâr/Zarar Finansman Gideri Öncesi Faaliyet Kârı/Zararı", "Financial sector gross profit/loss and operating profit/loss before finance expense", StatementIncome, "financial_sector_gross_profit_before_finance_expense"),
 	lineDef("3CB", "Diğer Gelir ve Giderler", "Other income and expenses", StatementIncome, "other_income_expenses"),
 	lineDef("3D", "BRÜT KAR/ZARAR", "Gross profit/loss", StatementIncome, "gross_profit", "Brüt Kar"),
 	lineDef("3DA", "Pazarlama, Satış ve Dağıtım Giderleri (-)", "Marketing, selling and distribution expenses", StatementIncome, "marketing_sales_distribution_expenses", "Pazarlama Giderleri"),
@@ -120,7 +121,7 @@ var canonicalFinancialLineCatalog = []LineDefinition{
 	lineDef("3HAA", "Yatırım Faaliyetlerinden Giderler (-)", "Expenses from investing activities", StatementIncome, "investment_activity_expenses"),
 	lineDef("3HAB", "Diğer Gelir ve Giderler", "Other income and expenses", StatementIncome, "other_non_operating_income_expenses"),
 	lineDef("3HAC", "Özkaynak Yöntemiyle Değerlenen Yatırımların Kar/Zararlarındaki Paylar", "Share of profit/loss of equity method investments", StatementIncome, "share_of_profit_loss_from_equity_method_investments"),
-	lineDef("3HACA", "Finansman Gideri Öncesi Faaliyet Karı/Zararı", "Operating profit/loss before finance expense", StatementIncome, "operating_profit_before_finance_expense", "Finans Sektörü Faaliyetlerinden Brüt Kâr/Zarar Finansman Gideri Öncesi Faaliyet Kârı/Zararı"),
+	lineDef("3HACA", "Finansman Gideri Öncesi Faaliyet Karı/Zararı", "Operating profit/loss before finance expense", StatementIncome, "operating_profit_before_finance_expense", "Finansman Gideri Öncesi Faaliyet Kârı/Zararı", "Finans Sektörü Faaliyetlerinden Brüt Kar/Zarar Finansman Gideri Öncesi Faaliyet Karı/Zararı", "Finans Sektörü Faaliyetlerinden Brüt Kâr/Zarar Finansman Gideri Öncesi Faaliyet Kârı/Zararı"),
 	lineDef("3HB", "Finansman Gelirleri", "Finance income", StatementIncome, "finance_income", "(Esas Faaliyet Dışı) Finansal Gelirler"),
 	lineDef("3HC", "Finansman Giderleri (-)", "Finance expenses", StatementIncome, "finance_expenses", "finance_expense", "(Esas Faaliyet Dışı) Finansal Giderler"),
 	lineDef("3HCA", "Vergi Öncesi Diğer Gelir ve Giderler", "Other income and expenses before tax", StatementIncome, "other_income_expenses_before_tax"),
@@ -568,6 +569,14 @@ func canonicalLineForTextCatalog(value string) (canonicalLine, bool) {
 	slug := util.SlugTR(strings.TrimSpace(value))
 	if slug == "" {
 		return canonicalLine{}, false
+	}
+	if strings.Contains(slug, "finanssektorufaaliyetlerindenbrut") &&
+		strings.Contains(slug, "finansmangiderioncesifaaliyet") {
+		for _, def := range canonicalFinancialLineCatalog {
+			if def.Code == "3CAFA" {
+				return def, true
+			}
+		}
 	}
 	for _, key := range canonicalFinancialLineSearchKeys() {
 		if slug == key.slug {

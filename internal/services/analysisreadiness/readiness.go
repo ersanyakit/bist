@@ -119,13 +119,16 @@ type KAPExtractionCoverage struct {
 }
 
 type FinancialCoverage struct {
-	Status        string   `json:"status"`
-	FactsRead     int      `json:"facts_read"`
-	FactsAccepted int      `json:"facts_accepted"`
-	FactsRejected int      `json:"facts_rejected"`
-	Fields        int      `json:"fields"`
-	Periods       int      `json:"periods"`
-	Warnings      []string `json:"warnings,omitempty"`
+	Status                 string   `json:"status"`
+	FactsRead              int      `json:"facts_read"`
+	FactsAccepted          int      `json:"facts_accepted"`
+	FactsRejected          int      `json:"facts_rejected"`
+	Fields                 int      `json:"fields"`
+	Periods                int      `json:"periods"`
+	CandidateFactsAccepted int      `json:"candidate_facts_accepted,omitempty"`
+	CandidateFields        int      `json:"candidate_fields,omitempty"`
+	CandidatePeriods       int      `json:"candidate_periods,omitempty"`
+	Warnings               []string `json:"warnings,omitempty"`
 }
 
 type SectorCoverage struct {
@@ -566,10 +569,11 @@ func checkFinancials(opts Options, symbol string, extraction *kapextract.Extract
 			Warnings:      append([]string{}, extraction.CanonicalFinancials.Warnings...),
 		}
 	} else {
+		facts := canonicalFacts(*extraction)
 		_, summary := kapfinance.BuildBilanco(kapfinance.BuildOptions{
 			Ticker:      symbol,
 			GeneratedAt: opts.now(),
-		}, canonicalFacts(*extraction))
+		}, facts)
 		coverage = FinancialCoverage{
 			Status:        checkPass,
 			FactsRead:     summary.FactsRead,
@@ -579,6 +583,13 @@ func checkFinancials(opts Options, symbol string, extraction *kapextract.Extract
 			Periods:       summary.Periods,
 			Warnings:      append([]string{}, summary.Warnings...),
 		}
+		_, candidate := kapfinance.BuildBilanco(kapfinance.BuildOptions{
+			Ticker:      symbol,
+			GeneratedAt: opts.now(),
+		}, reviewCandidateFacts(facts))
+		coverage.CandidateFactsAccepted = candidate.FactsAccepted
+		coverage.CandidateFields = candidate.Fields
+		coverage.CandidatePeriods = candidate.Periods
 	}
 	switch {
 	case coverage.FactsAccepted == 0 || coverage.Fields == 0 || coverage.Periods == 0:
@@ -588,7 +599,7 @@ func checkFinancials(opts Options, symbol string, extraction *kapextract.Extract
 			Status:      checkFail,
 			Severity:    severityErr,
 			Score:       0,
-			Message:     "canonical financial statement coverage is not decision-usable",
+			Message:     canonicalFailureMessage(coverage),
 			Details:     financialDetails(coverage),
 			Remediation: "KAP financial fact doğrulamasını artırın; tablo/XBRL kaynaklarını ve period mapping'i tamamlayın.",
 		})
@@ -648,13 +659,42 @@ func canonicalFacts(result kapextract.ExtractionResult) []kapfinance.Fact {
 	return out
 }
 
+func reviewCandidateFacts(facts []kapfinance.Fact) []kapfinance.Fact {
+	out := make([]kapfinance.Fact, 0, len(facts))
+	for _, fact := range facts {
+		if strings.EqualFold(fact.ValidationStatus, "invalid") {
+			continue
+		}
+		if fact.Confidence < 0.45 {
+			fact.Confidence = 0.45
+		}
+		out = append(out, fact)
+	}
+	return out
+}
+
+func canonicalFailureMessage(coverage FinancialCoverage) string {
+	if coverage.CandidateFactsAccepted > 0 {
+		return "financial facts map to canonical candidates but are not validation/certification usable"
+	}
+	return "canonical financial statement coverage is not decision-usable"
+}
+
 func financialDetails(coverage FinancialCoverage) []string {
-	return []string{
+	details := []string{
 		fmt.Sprintf("facts_read=%d", coverage.FactsRead),
 		fmt.Sprintf("facts_accepted=%d", coverage.FactsAccepted),
 		fmt.Sprintf("fields=%d", coverage.Fields),
 		fmt.Sprintf("periods=%d", coverage.Periods),
 	}
+	if coverage.CandidateFactsAccepted > 0 || coverage.CandidateFields > 0 || coverage.CandidatePeriods > 0 {
+		details = append(details,
+			fmt.Sprintf("candidate_facts_accepted=%d", coverage.CandidateFactsAccepted),
+			fmt.Sprintf("candidate_fields=%d", coverage.CandidateFields),
+			fmt.Sprintf("candidate_periods=%d", coverage.CandidatePeriods),
+		)
+	}
+	return details
 }
 
 func checkSector(opts Options, sectors map[string]classification.Entry, symbol string, checks []Check) (SectorCoverage, []Check) {
