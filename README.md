@@ -15,6 +15,7 @@ go run ./cmd/hissebot financials run -force
 go run ./cmd/hissebot sync tradingview
 go run ./cmd/hissebot sync ohlcv
 go run ./cmd/hissebot sync charts
+go run ./cmd/hissebot sync bist-bulletin-db -from 2026-06-23 -to 2026-06-24
 go run ./cmd/hissebot sync all-data
 go run ./cmd/hissebot sync mkk
 go run ./cmd/hissebot sync kap-sectors
@@ -272,6 +273,15 @@ Tüm hisseler için genel veri çekimini tek komutla başlatmak için:
 ```bash
 HISSEBOT_COMMAND_TIMEOUT=8h go run ./cmd/hissebot sync all-data
 ```
+
+Resmi BIST günlük OHLCV indeksini Borsa İstanbul THB bülten ZIP'lerinden güncellemek için:
+
+```bash
+go run ./cmd/hissebot sync bist-bulletin-db -from 2026-06-23 -to 2026-06-24
+go run ./cmd/hissebot sync bist-bulletin-db -from-year 2026 -to-year 2026
+```
+
+Komut eksik `thbYYYYAAGGS.zip` dosyalarını `https://www.borsaistanbul.com/data/thb/YYYY/AA/` altından indirir, `data/bist/unprocessed/bulten_verileri/` içine açar ve `data/bist/bist_ohlcv.sqlite` indeksine işler. BIST tatil/gün sonu henüz yayımlanmamış bültenler `missing` olarak işaretlenir; `-retry-missing-after` süresi dolunca tekrar denenir.
 
 KAP bildirim metadatası ve ek dosyaları büyük hacimlidir. Önce tüm bildirim kategorilerini çekin, sonra ekleri resume destekli indirin:
 

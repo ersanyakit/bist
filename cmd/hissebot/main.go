@@ -19,6 +19,7 @@ import (
 	"hissebot/internal/enterprise"
 	"hissebot/internal/extraction"
 	"hissebot/internal/repositories/filedocuments"
+	"hissebot/internal/services/bistbulletindb"
 	"hissebot/internal/services/classification"
 	"hissebot/internal/services/comments"
 	"hissebot/internal/services/financials"
@@ -247,6 +248,70 @@ func runSync(ctx context.Context, cfg config.Config, store *storage.EquityStore,
 		return errors.New("sync subcommand required")
 	}
 	switch args[0] {
+	case "bist-bulletin-db", "bistdb", "official-bist":
+		fs := flag.NewFlagSet("sync bist-bulletin-db", flag.ExitOnError)
+		dbPath := fs.String("db", bistBulletinDBPath(cfg.DataDir), "BIST resmi bülten SQLite dosyası")
+		rawRoot := fs.String("raw", filepath.Join(cfg.DataDir, "bist", "unprocessed", "bulten_verileri"), "BIST THB ham dosya kökü")
+		baseURL := fs.String("base-url", bistbulletindb.DefaultBaseURL, "BIST THB ZIP base URL")
+		from := fs.String("from", "", "başlangıç tarihi, YYYY-MM-DD veya DD.MM.YYYY")
+		to := fs.String("to", "", "bitiş tarihi, YYYY-MM-DD veya DD.MM.YYYY")
+		fromYear := fs.Int("from-year", 0, "başlangıç yılı; -from yoksa kullanılır")
+		toYear := fs.Int("to-year", 0, "bitiş yılı; -to yoksa kullanılır")
+		session := fs.Int("session", 1, "BIST bülten seansı")
+		download := fs.Bool("download", true, "eksik resmi THB ZIP dosyalarını BIST'ten indir")
+		force := fs.Bool("force", false, "mevcut ham dosya/kaynak durumunu yeniden işle")
+		requestDelay := fs.Duration("request-delay", 150*time.Millisecond, "BIST ZIP istekleri arası bekleme")
+		timeout := fs.Duration("timeout", cfg.HTTPTimeout, "BIST ZIP istek timeout'u")
+		retryMissingAfter := fs.Duration("retry-missing-after", 24*time.Hour, "404 kaynakları yeniden denemeden önce beklenecek süre")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		fromDate, err := parseOptionalDate(*from)
+		if err != nil {
+			return err
+		}
+		toDate, err := parseOptionalDate(*to)
+		if err != nil {
+			return err
+		}
+		result, err := bistbulletindb.Sync(ctx, bistbulletindb.Options{
+			DBPath:            *dbPath,
+			RawRoot:           *rawRoot,
+			BaseURL:           *baseURL,
+			FromDate:          fromDate,
+			ToDate:            toDate,
+			FromYear:          *fromYear,
+			ToYear:            *toYear,
+			Session:           *session,
+			Download:          *download,
+			Force:             *force,
+			RequestDelay:      *requestDelay,
+			Timeout:           *timeout,
+			RetryMissingAfter: *retryMissingAfter,
+		})
+		if printErr := printJSON(result); printErr != nil {
+			return printErr
+		}
+		_, auditErr := audit.Append(cfg.AuditLogPath, audit.Event{
+			Action:   "sync_bist_bulletin_db",
+			Entity:   "bist_official_ohlcv",
+			EntityID: *dbPath,
+			Details: map[string]any{
+				"remote_downloaded":      result.RemoteDownloaded,
+				"remote_missing":         result.RemoteMissing,
+				"local_sources_imported": result.LocalSourcesImported,
+				"database_candles":       result.DatabaseCandles,
+				"database_symbols":       result.DatabaseSymbols,
+				"errors":                 result.SourcesFailed + len(result.Errors),
+			},
+		})
+		if err != nil {
+			if auditErr != nil {
+				return fmt.Errorf("%w; audit append: %v", err, auditErr)
+			}
+			return err
+		}
+		return auditErr
 	case "tradingview":
 		fs := flag.NewFlagSet("sync tradingview", flag.ExitOnError)
 		requests := fs.String("requests", cfg.TradingViewRequestsFile, "TradingView request seed JSON file")
@@ -923,6 +988,7 @@ Commands:
   sync tradingview                 TradingView scanner verisini cekip hisse JSON'larina yazar
   sync ohlcv                       TradingView anlik OHLCV verisini hisse JSON'larina yazar
   sync charts                      TradingView chart mum datasini hisse klasorundeki charts altina yazar
+  sync bist-bulletin-db            Resmi BIST THB bulten ZIP'lerini indirir ve SQLite OHLCV indeksine isler
   sync all-data                    Tum hisse verilerini ve chart datasini ceker
   sync kap                         KAP BIST sirket listesini canli cekip hisse JSON'larina yazar
   sync kap-disclosures             KAP bildirimlerini ice aktarir; -disclosure-types all tum kategorileri ceker

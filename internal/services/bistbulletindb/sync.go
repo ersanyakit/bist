@@ -1,12 +1,16 @@
 package bistbulletindb
 
 import (
+	"archive/zip"
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -29,8 +33,14 @@ func Sync(ctx context.Context, opts Options) (Report, error) {
 	if opts.RawRoot == "" {
 		opts.RawRoot = DefaultRawRoot
 	}
+	if opts.BaseURL == "" {
+		opts.BaseURL = DefaultBaseURL
+	}
 	if opts.Now == nil {
 		opts.Now = time.Now
+	}
+	if opts.Timeout <= 0 {
+		opts.Timeout = 30 * time.Second
 	}
 
 	store, err := OpenStore(opts.DBPath)
@@ -51,6 +61,21 @@ func Sync(ctx context.Context, opts Options) (Report, error) {
 	states, err := store.SourceStates(ctx)
 	if err != nil {
 		return report, fmt.Errorf("load source states: %w", err)
+	}
+	if opts.Download {
+		downloadReport, err := downloadRemoteBulletins(ctx, store, states, opts)
+		report.RemoteCandidates += downloadReport.RemoteCandidates
+		report.RemoteSkipped += downloadReport.RemoteSkipped
+		report.RemoteDownloaded += downloadReport.RemoteDownloaded
+		report.RemoteMissing += downloadReport.RemoteMissing
+		report.Errors = append(report.Errors, downloadReport.Errors...)
+		if err != nil {
+			return report, err
+		}
+		states, err = store.SourceStates(ctx)
+		if err != nil {
+			return report, fmt.Errorf("reload source states: %w", err)
+		}
 	}
 
 	files, err := scanBulletinFiles(opts.RawRoot, opts.Session, opts.FromYear, opts.ToYear)
@@ -97,6 +122,236 @@ func Sync(ctx context.Context, opts Options) (Report, error) {
 		report.DatabaseSymbols = symbols
 	}
 	return report, ctx.Err()
+}
+
+func downloadRemoteBulletins(ctx context.Context, store *Store, states map[string]SourceState, opts Options) (Report, error) {
+	dates := candidateDates(opts)
+	client := &http.Client{Timeout: opts.Timeout}
+	report := Report{}
+	session := opts.Session
+	if session <= 0 {
+		session = 1
+	}
+	delay := opts.RequestDelay
+	for i, day := range dates {
+		if err := ctx.Err(); err != nil {
+			return report, err
+		}
+		report.RemoteCandidates++
+		sourceKey := SourceKey(day, session)
+		url := bulletinURL(opts.BaseURL, day, session)
+		state, hasState := states[sourceKey]
+		if hasExtractedBulletin(opts.RawRoot, day, session) && !opts.Force {
+			report.RemoteSkipped++
+			continue
+		}
+		if hasState && state.Status == SourceStatusOK && !opts.Force {
+			report.RemoteSkipped++
+			continue
+		}
+		if hasState && state.Status == SourceStatus404 && !opts.Force && !retryMissing(state, opts) {
+			report.RemoteSkipped++
+			continue
+		}
+		if i > 0 && delay > 0 {
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return report, ctx.Err()
+			case <-timer.C:
+			}
+		}
+		status, raw, err := fetchBulletinZip(ctx, client, url)
+		source := SourceResult{
+			SourceKey:   sourceKey,
+			TradingDate: day,
+			Session:     session,
+			RemoteURL:   url,
+			CheckedAt:   opts.Now().UTC(),
+		}
+		if status == http.StatusNotFound {
+			source.Error = fmt.Sprintf("file does not exist: %s", url)
+			if err := store.MarkSource(ctx, source, SourceStatus404); err != nil {
+				return report, err
+			}
+			report.RemoteMissing++
+			continue
+		}
+		if err != nil {
+			source.Error = err.Error()
+			report.Errors = append(report.Errors, fmt.Sprintf("%s: %v", sourceKey, err))
+			if markErr := store.MarkSource(ctx, source, SourceStatusErr); markErr != nil {
+				report.Errors = append(report.Errors, fmt.Sprintf("%s mark error: %v", sourceKey, markErr))
+			}
+			continue
+		}
+		if err := extractBulletinZip(raw, opts.RawRoot, day, session); err != nil {
+			source.Error = err.Error()
+			report.Errors = append(report.Errors, fmt.Sprintf("%s: extract: %v", sourceKey, err))
+			if markErr := store.MarkSource(ctx, source, SourceStatusErr); markErr != nil {
+				report.Errors = append(report.Errors, fmt.Sprintf("%s mark error: %v", sourceKey, markErr))
+			}
+			continue
+		}
+		report.RemoteDownloaded++
+	}
+	return report, nil
+}
+
+func candidateDates(opts Options) []time.Time {
+	from, to := opts.FromDate, opts.ToDate
+	now := opts.Now
+	if now == nil {
+		now = time.Now
+	}
+	if from.IsZero() || to.IsZero() {
+		fromYear := opts.FromYear
+		toYear := opts.ToYear
+		if fromYear == 0 && toYear == 0 {
+			fromYear, toYear = now().Year(), now().Year()
+		}
+		if fromYear == 0 {
+			fromYear = toYear
+		}
+		if toYear == 0 {
+			toYear = fromYear
+		}
+		if from.IsZero() {
+			from = time.Date(fromYear, 1, 1, 0, 0, 0, 0, time.UTC)
+		}
+		if to.IsZero() {
+			if toYear == now().Year() {
+				t := now().UTC()
+				to = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+			} else {
+				to = time.Date(toYear, 12, 31, 0, 0, 0, 0, time.UTC)
+			}
+		}
+	}
+	from = dateOnly(from)
+	to = dateOnly(to)
+	if to.Before(from) {
+		return nil
+	}
+	var out []time.Time
+	for day := from; !day.After(to); day = day.AddDate(0, 0, 1) {
+		out = append(out, day)
+	}
+	return out
+}
+
+func retryMissing(state SourceState, opts Options) bool {
+	if opts.RetryMissingAfter <= 0 || state.CheckedAt.IsZero() {
+		return false
+	}
+	return opts.Now().UTC().Sub(state.CheckedAt.UTC()) >= opts.RetryMissingAfter
+}
+
+func dateOnly(t time.Time) time.Time {
+	t = t.UTC()
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+func bulletinURL(baseURL string, day time.Time, session int) string {
+	baseURL = strings.TrimRight(baseURL, "/")
+	yyyymmdd := day.Format("20060102")
+	return fmt.Sprintf("%s/%04d/%02d/thb%s%d.zip", baseURL, day.Year(), int(day.Month()), yyyymmdd, session)
+}
+
+func fetchBulletinZip(ctx context.Context, client *http.Client, url string) (int, []byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, nil, err
+	}
+	req.Header.Set("User-Agent", "hissebot-bist-bulletin-sync/1.0")
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return resp.StatusCode, nil, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		return resp.StatusCode, nil, fmt.Errorf("GET %s returned HTTP %d", url, resp.StatusCode)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return resp.StatusCode, nil, err
+	}
+	return resp.StatusCode, raw, nil
+}
+
+func extractBulletinZip(raw []byte, rawRoot string, day time.Time, session int) error {
+	reader, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	if err != nil {
+		return err
+	}
+	target := bulletinExtractDir(rawRoot, day, session)
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return err
+	}
+	for _, item := range reader.File {
+		if item.FileInfo().IsDir() {
+			continue
+		}
+		name := filepath.Base(item.Name)
+		if name == "." || name == string(filepath.Separator) || strings.TrimSpace(name) == "" {
+			continue
+		}
+		if !strings.HasPrefix(strings.ToLower(name), "thb") {
+			continue
+		}
+		if err := extractZipFile(item, filepath.Join(target, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func extractZipFile(item *zip.File, target string) error {
+	src, err := item.Open()
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	tmp, err := os.CreateTemp(filepath.Dir(target), "."+filepath.Base(target)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := io.Copy(tmp, src); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, target)
+}
+
+func hasExtractedBulletin(rawRoot string, day time.Time, session int) bool {
+	pattern := filepath.Join(bulletinExtractDir(rawRoot, day, session), fmt.Sprintf("thb%s%d.*", day.Format("20060102"), session))
+	matches, err := filepath.Glob(pattern)
+	return err == nil && len(matches) > 0
+}
+
+func bulletinExtractDir(rawRoot string, day time.Time, session int) string {
+	return filepath.Join(bulletinRoot(rawRoot), day.Format("2006"), day.Format("01"), fmt.Sprintf("%s_s%d", day.Format("20060102"), session), "extracted")
+}
+
+func bulletinRoot(rawRoot string) string {
+	if strings.HasSuffix(filepath.ToSlash(rawRoot), "bulten_verileri") {
+		return rawRoot
+	}
+	return filepath.Join(rawRoot, "bulten_verileri")
 }
 
 // ── file scanning ─────────────────────────────────────────────────────────────

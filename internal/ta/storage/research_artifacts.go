@@ -36,6 +36,8 @@ func writeResearchArtifacts(targetDir, equitiesDir string, result analysis.Symbo
 		"buffett_value_checklist.json":         buffettValueChecklistArtifact(result),
 		"investment_thesis.json":               investmentThesisArtifact(result),
 		"decision_support_standard.json":       decisionSupportArtifact(result),
+		"quant_risk_report.json":               quantRiskReportArtifact(result),
+		"stat_economic_report.json":            statEconomicReportArtifact(result),
 		"risk_matrix.json":                     riskMatrixArtifact(result),
 		"catalyst_calendar.json":               catalystCalendarArtifact(result),
 		"technical_trade_plan.json":            technicalTradePlanArtifact(result),
@@ -80,6 +82,8 @@ func writeMarketResearchArtifacts(targetDir string, result analysis.SymbolAnalys
 	}
 	artifacts := map[string]any{
 		"market_research_context.json": marketResearchContextArtifact(result),
+		"quant_risk_report.json":       quantRiskReportArtifact(result),
+		"stat_economic_report.json":    statEconomicReportArtifact(result),
 		"risk_matrix.json":             marketRiskMatrixArtifact(result),
 		"technical_trade_plan.json":    technicalTradePlanArtifact(result),
 		"data_quality_report.json":     marketDataQualityArtifact(result),
@@ -824,6 +828,28 @@ func decisionSupportArtifact(result analysis.SymbolAnalysis) map[string]any {
 	}
 }
 
+func quantRiskReportArtifact(result analysis.SymbolAnalysis) map[string]any {
+	return map[string]any{
+		"schema_version": 1,
+		"symbol":         result.Symbol,
+		"asset_type":     result.AssetType,
+		"analysis_date":  result.AnalysisDate,
+		"quant":          result.Quant,
+		"disclaimer":     firstNonEmptyReport(result.Disclaimer, ohlcv.Disclaimer),
+	}
+}
+
+func statEconomicReportArtifact(result analysis.SymbolAnalysis) map[string]any {
+	return map[string]any{
+		"schema_version": 1,
+		"symbol":         result.Symbol,
+		"asset_type":     result.AssetType,
+		"analysis_date":  result.AnalysisDate,
+		"stat_economic":  result.StatEconomic,
+		"disclaimer":     firstNonEmptyReport(result.Disclaimer, ohlcv.Disclaimer),
+	}
+}
+
 func riskMatrixArtifact(result analysis.SymbolAnalysis) map[string]any {
 	rows := []map[string]any{}
 	add := func(category, risk, probability, impact, mitigation string, early []string) {
@@ -857,6 +883,15 @@ func riskMatrixArtifact(result analysis.SymbolAnalysis) map[string]any {
 	}
 	for _, risk := range result.Professional.Disclosure.RiskFlags {
 		add("kap_disclosure", risk, "medium", "medium", "KAP olayi ve ilgili dokuman kaniti takip edilmeli.", nil)
+	}
+	for _, warning := range result.Quant.Decision.Warnings {
+		add("quant_risk", warning, "medium", "medium", "Pozisyon boyutu VaR/CVaR ve drawdown limitleriyle sinirlanmali.", []string{result.Quant.Decision.Summary})
+	}
+	for _, blocker := range result.Quant.Decision.Blockers {
+		add("quant_risk", blocker, "medium", "high", "Quant risk kapisi gecmeden yeni pozisyon boyutu artirilmamali.", []string{result.Quant.Decision.Summary})
+	}
+	for _, warning := range result.StatEconomic.Warnings {
+		add("stat_economic", warning, "medium", "medium", "Istatistiksel/ekonomik tutarlilik kapisindaki eksikler kapatilmali.", []string{fmt.Sprintf("composite %.1f", result.StatEconomic.CompositeScore)})
 	}
 	for _, warning := range result.Professional.KAPPDFIngest.Warnings {
 		add("data_quality", warning, "high", "medium", "PDF kalite kapisi ve insan inceleme kuyruğu ile temizlenmeli.", nil)

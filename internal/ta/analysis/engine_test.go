@@ -84,6 +84,18 @@ func TestAnalyzeSymbolBuildsCompleteTimeframeContract(t *testing.T) {
 	if !result.FinTradeBench.Computed || len(result.FinTradeBench.TradingSignals) == 0 {
 		t.Fatalf("expected FinTradeBench evidence layer: %+v", result.FinTradeBench)
 	}
+	if !result.Quant.Computed || result.Quant.SampleCount == 0 || result.Quant.Decision.Score <= 0 {
+		t.Fatalf("expected quant risk/return layer: %+v", result.Quant)
+	}
+	if result.Quant.Risk.HistoricalVaR95Pct <= 0 || result.Quant.Risk.AnnualizedVolatilityPct <= 0 {
+		t.Fatalf("expected quant risk metrics: %+v", result.Quant.Risk)
+	}
+	if !result.StatEconomic.Computed || result.StatEconomic.CompositeScore <= 0 {
+		t.Fatalf("expected statistical/economic layer: %+v", result.StatEconomic)
+	}
+	if result.StatEconomic.Regime.GARCHVolatilityForecastPct <= 0 || result.StatEconomic.DataIntegrity.Score <= 0 {
+		t.Fatalf("expected stat/economic diagnostics: %+v", result.StatEconomic)
+	}
 	if !result.NextSessionForecast.Computed || result.NextSessionForecast.PredictedOpen <= 0 || result.NextSessionForecast.PredictedClose <= 0 {
 		t.Fatalf("expected symbol-level next-session open/close forecast: %+v", result.NextSessionForecast)
 	}
@@ -116,6 +128,57 @@ func TestFetchBISTBulletinRecordsForAnalysisUsesAsOfNotForecastFor(t *testing.T)
 	}
 	if provider.toDate != "2026-06-18" {
 		t.Fatalf("toDate=%q, want as-of date 2026-06-18", provider.toDate)
+	}
+}
+
+func TestBuildQuantAnalysisComputesRiskReturnAndBenchmark(t *testing.T) {
+	candles := make([]ohlcv.Candle, 0, 80)
+	price := 100.0
+	for i := 0; i < 80; i++ {
+		ret := 0.001 + 0.008*math.Sin(float64(i)/5)
+		price *= 1 + ret
+		candles = append(candles, ohlcv.Candle{
+			Time:          time.Date(2026, 1, 1+i, 0, 0, 0, 0, time.UTC),
+			Open:          price * 0.995,
+			High:          price * 1.01,
+			Low:           price * 0.99,
+			Close:         price,
+			Volume:        1_000_000,
+			AdjustedClose: price,
+			IsAdjusted:    true,
+		})
+	}
+	result := SymbolAnalysis{
+		Symbol:    "TEST",
+		AssetType: ohlcv.AssetTypeEquity,
+		Timeframes: map[string]TimeframeAnalysis{
+			"1D": {Timeframe: "1D", Candles: candles, LastClose: price},
+		},
+		Professional: professional.Report{
+			Market: professional.MarketContext{
+				BenchmarkSymbol:    "XU100",
+				BenchmarkAvailable: true,
+				RelativeStrength20: 0.03,
+				RelativeStrength60: 0.04,
+				Beta60:             0.92,
+				Alpha60:            0.08,
+				Correlation60:      0.64,
+			},
+		},
+	}
+
+	got := BuildQuantAnalysis(result)
+	if !got.Computed || got.SampleCount != 79 {
+		t.Fatalf("quant not computed: %+v", got)
+	}
+	if got.Return.Return20DPct == 0 || got.Risk.HistoricalVaR95Pct <= 0 || got.Risk.SharpeRatio == 0 {
+		t.Fatalf("quant metrics missing: return=%+v risk=%+v", got.Return, got.Risk)
+	}
+	if !got.Benchmark.Available || got.Benchmark.Beta60 != 0.92 || got.Benchmark.RelativeStrength60Pct != 4 {
+		t.Fatalf("benchmark metrics missing: %+v", got.Benchmark)
+	}
+	if got.Decision.Score <= 0 || got.Decision.Summary == "" {
+		t.Fatalf("decision missing: %+v", got.Decision)
 	}
 }
 

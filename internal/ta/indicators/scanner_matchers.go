@@ -335,7 +335,7 @@ func knownIndicatorValues(input ScannerInput) map[string]indicatorValue {
 	for name, value := range s.RelativeStrength {
 		add(name, value, "snapshot.relative_strength")
 	}
-	addAliases(cumulativeReturnPercent(cls), "snapshot.relative_strength.cumulative_return", "Cumulative Return", "Cumulative Return Price")
+	addAliases(CumulativeReturn(cls), "snapshot.relative_strength.cumulative_return", "Cumulative Return", "Cumulative Return Price")
 	addAliases(maxDrawdownPercent(cls), "snapshot.relative_strength.drawdown", "Drawdown", "Average Drawdown", "Maximum Drawdown")
 	addAliases(choppinessIndex(input.Candles, 14), "snapshot.choppiness_index", "CHOP", "Choppiness Index")
 	addDerivedStatAliases(addAliases, input.Candles, cls, vol)
@@ -375,6 +375,9 @@ func addAdditionalIndicatorAliases(addAliases func(float64, string, ...string), 
 	alias("Parabolic SAR", "PSAR")
 	alias("Parabolic SAR", "SAR", "SAREXT", "SAR Trailing Stop")
 	alias("Percentage Price Oscillator", "PPO")
+	alias("Percentage Volume Oscillator", "PVO")
+	alias("PVO Signal Line", "PVO Signal")
+	alias("PVO Histogram", "PVO Hist")
 	alias("Price Volume Trend", "PVT")
 	alias("Schaff Trend Cycle", "STC")
 	alias("Standard Deviation", "STDDEV")
@@ -384,6 +387,7 @@ func addAdditionalIndicatorAliases(addAliases func(float64, string, ...string), 
 	alias("Ultimate Oscillator", "ULTOSC")
 	alias("Ultimate Oscillator", "UO")
 	alias("Volume Price Trend", "VPT")
+	alias("Volume Oscillator", "PVO", "Percentage Volume Oscillator")
 	alias("Volume Weighted Moving Average", "VWMA")
 	alias("Weighted Moving Average", "WMA")
 	alias("Williams %R", "WILLR")
@@ -499,8 +503,8 @@ func addDerivedStatAliases(addAliases func(float64, string, ...string), candles 
 	addAliases(shannonEntropy(retWindow, 10), "snapshot.derived.stat.entropy", "Entropy Indicator", "Shannon Entropy")
 	addAliases(zScore(last(closes), window), "snapshot.derived.stat.zscore", "Z-Score", "Rolling Z-Score")
 	addAliases(percentileRank(closes, 100), "snapshot.derived.stat.percentile_rank", "Percent Rank", "Percentile Rank")
-	addAliases(lastReturnPercent(closes), "snapshot.derived.stat.simple_return", "Simple Return", "Rolling Returns")
-	addAliases(lastLogReturnPercent(closes), "snapshot.derived.stat.log_return", "Log Return")
+	addAliases(lastReturnPercent(closes), "snapshot.derived.stat.simple_return", "Daily Return", "Simple Return", "Rolling Returns")
+	addAliases(lastLogReturnPercent(closes), "snapshot.derived.stat.log_return", "Daily Log Return", "Log Return")
 	addAliases(returnVolatility(closes, 20), "snapshot.derived.stat.rolling_volatility", "Rolling Volatility")
 	addAliases(RollingSharpe(closes, 60), "snapshot.derived.stat.sharpe", "Sharpe Ratio")
 	addAliases(RollingSortino(closes, 60), "snapshot.derived.stat.sortino", "Sortino Ratio")
@@ -756,10 +760,7 @@ func hlc3(candles []ohlcv.Candle) float64 {
 }
 
 func cumulativeReturnPercent(values []float64) float64 {
-	if len(values) < 2 {
-		return 0
-	}
-	return 100 * mathutil.SafeDiv(values[len(values)-1]-values[0], absDenominator(values[0]))
+	return CumulativeReturn(values)
 }
 
 func maxDrawdownPercent(values []float64) float64 {
@@ -1062,17 +1063,11 @@ func zScore(value float64, window []float64) float64 {
 }
 
 func lastReturnPercent(values []float64) float64 {
-	if len(values) < 2 {
-		return 0
-	}
-	return 100 * mathutil.SafeDiv(values[len(values)-1]-values[len(values)-2], absDenominator(values[len(values)-2]))
+	return DailyReturn(values)
 }
 
 func lastLogReturnPercent(values []float64) float64 {
-	if len(values) < 2 || values[len(values)-1] <= 0 || values[len(values)-2] <= 0 {
-		return 0
-	}
-	return 100 * math.Log(values[len(values)-1]/values[len(values)-2])
+	return DailyLogReturn(values)
 }
 
 func historicalVaR(rets []float64, confidence float64) float64 {

@@ -63,6 +63,8 @@ type reportResponse struct {
 	EliteCandidateSummary   string                `json:"elite_candidate_summary"`
 	TransactionUseStatus    string                `json:"transaction_use_status"`
 	TransactionUseAnswer    string                `json:"transaction_use_answer"`
+	PreflightStatus         string                `json:"preflight_status"`
+	PreflightIssues         []string              `json:"preflight_issues,omitempty"`
 	RequiredElitePasses     []string              `json:"required_elite_passes,omitempty"`
 	FailedElitePasses       []string              `json:"failed_elite_passes,omitempty"`
 	AnalysisGates           analysisGateResponses `json:"analysis_gates"`
@@ -646,8 +648,11 @@ func (s *reportServer) generate(ctx context.Context, req reportRequest) (reportR
 	}
 	outputDir := reportstorage.AnalysisDirForAsset(cfg.OutputDir, result.AssetType, result.Symbol, result.AnalysisDate)
 	views := result.InvestorQA.InstitutionalViews
+	preflightStatus, preflightIssues := reportPreflight(result)
 	responseStatus := "ok"
-	if req.RequireEliteCandidate && views.EliteCandidate.Status != "pass" {
+	if preflightStatus == "fail" {
+		responseStatus = "rejected"
+	} else if req.RequireEliteCandidate && views.EliteCandidate.Status != "pass" {
 		responseStatus = "rejected"
 	}
 	_, _ = audit.Append(s.cfg.AuditLogPath, audit.Event{
@@ -665,6 +670,8 @@ func (s *reportServer) generate(ctx context.Context, req reportRequest) (reportR
 			"transaction_use_status":    views.FinancialTransactionUse.Status,
 			"report_quality_status":     views.OverallQualityStatus,
 			"investment_quality_status": views.OverallStatus,
+			"preflight_status":          preflightStatus,
+			"preflight_issues":          preflightIssues,
 		},
 	})
 	return reportResponse{
@@ -683,6 +690,8 @@ func (s *reportServer) generate(ctx context.Context, req reportRequest) (reportR
 		EliteCandidateSummary:   views.EliteCandidate.Summary,
 		TransactionUseStatus:    views.FinancialTransactionUse.Status,
 		TransactionUseAnswer:    views.FinancialTransactionUse.Answer,
+		PreflightStatus:         preflightStatus,
+		PreflightIssues:         preflightIssues,
 		RequiredElitePasses:     views.EliteCandidate.RequiredPasses,
 		FailedElitePasses:       views.EliteCandidate.FailedPasses,
 		AnalysisGates: analysisGateResponses{
@@ -719,6 +728,49 @@ func (s *reportServer) generate(ctx context.Context, req reportRequest) (reportR
 		HTMLPath:     filepath.Join(outputDir, "rapor.html"),
 		AnalysisPath: filepath.Join(outputDir, "analysis.json"),
 	}, nil
+}
+
+func reportPreflight(result analysis.SymbolAnalysis) (string, []string) {
+	issues := []string{}
+	if result.Professional.EvidencePolicy.Status == "blocked" {
+		issues = append(issues, result.Professional.EvidencePolicy.BlockingIssues...)
+	}
+	if result.PriceQuality == nil {
+		issues = append(issues, "price_quality_report_missing")
+	} else if !result.PriceQuality.ReadyForDecision {
+		if len(result.PriceQuality.BlockingReasons) > 0 {
+			for _, reason := range result.PriceQuality.BlockingReasons {
+				issues = append(issues, "price_quality:"+reason)
+			}
+		} else {
+			issues = append(issues, "price_quality_not_ready_for_decision")
+		}
+	}
+	if result.DecisionClassification.Status != "" && result.DecisionClassification.Status != "decision_ready" {
+		issues = append(issues, "decision_classification:"+result.DecisionClassification.Status)
+	}
+	issues = uniqueReportStrings(issues)
+	if len(issues) > 0 {
+		return "fail", issues
+	}
+	return "pass", nil
+}
+
+func uniqueReportStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 func (s *reportServer) authorized(r *http.Request) bool {

@@ -5,6 +5,7 @@ import "time"
 const (
 	DefaultDBPath   = "data/bist/bist_ohlcv.sqlite"
 	DefaultRawRoot  = "data/bist/unprocessed/bulten_verileri"
+	DefaultBaseURL  = "https://www.borsaistanbul.com/data/thb"
 	SourceVersion   = "bist_thb_v1"
 	SourceStatusOK  = "processed"
 	SourceStatus404 = "missing"
@@ -56,6 +57,8 @@ type Options struct {
 	DBPath            string
 	RawRoot           string
 	BaseURL           string
+	FromDate          time.Time
+	ToDate            time.Time
 	FromYear          int
 	ToYear            int
 	Session           int

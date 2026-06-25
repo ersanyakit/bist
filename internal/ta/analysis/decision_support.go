@@ -464,6 +464,8 @@ func decisionActionGates(result SymbolAnalysis, daily TimeframeAnalysis, hasDail
 		add("daily_technical_signal_gate", "fail", "1D teknik analiz", "missing", "Günlük teknik analiz olmadan AL/SAT veya risk kapısı kurulamaz.", nil, []string{"TradingView günlük OHLCV verisini yenile."})
 	}
 	add("next_session_forecast_model", nextSessionForecastDecisionGateStatus(result), "decision_grade forecast; resmi gerçekleşen yalnız doğrulama kanıtıdır", nextSessionForecastDecisionCurrent(result), "Sonraki seans tahmin modeli geriye dönük doğrulama, teknik karar kapısı ve güven eşiğini geçmeden AL/SAT veya emir girdisi olamaz.", nextSessionForecastDecisionEvidence(result), nextSessionForecastDecisionNextSteps(result))
+	add("quant_risk_gate", quantDecisionGateStatus(result), "quant computed + risk_score >= 50 + VaR95 < 5%", quantDecisionCurrent(result), "Nicel risk/getiri katmanı, teknik ve temel kararın portföy riskiyle taşınabilir olup olmadığını ölçer.", quantDecisionEvidence(result), quantDecisionNextSteps(result))
+	add("stat_economic_consistency_gate", statEconomicGateStatus(result), "composite >= 58 + data/model risk fail değil", statEconomicCurrent(result), "İstatistiksel ve ekonomik tutarlılık kapısı veri kalitesi, faktör, rejim, stres, makro, finansal kalite, likidite ve validasyonu birlikte ölçer.", statEconomicEvidence(result), statEconomicNextSteps(result))
 	valueStatus := "fail"
 	if result.Professional.ValueInvesting.Computed {
 		valueStatus = "pass"
@@ -514,6 +516,8 @@ func decisionSupportMinimums(result SymbolAnalysis, daily TimeframeAnalysis, has
 	add("verified_price_close", "resmi final kapanış, source_timestamp, fetched_at ve kaynak mutabakatı", priceCurrent, verifiedPriceCloseOK(result), "Kapanış fiyatı verified değilse teknik seviyeler ve AL/SAT çıktısı kesin fiyat kanıtı gibi kullanılamaz.", "Resmi/lisanslı kapanış dosyasını içe aktar ve price-quality kapısını yenile.")
 	add("technical_trade_plan", "giriş, stop, hedef, risk/ödül ve geçersiz kılma şartı", dailyPlanCurrent(daily, hasDaily), hasDaily && !daily.TradePlan.Rejected && daily.TradePlan.EntryMin > 0 && daily.TradePlan.StopLoss > 0 && daily.TradePlan.TakeProfit1 > 0 && daily.TradePlan.RiskRewardRatio >= 1.5, "Seviye listesi tek başına işlem planı değildir.", "technical_trade_plan.json içindeki reddedilen plan nedenlerini kapat.")
 	add("next_session_forecast_model", "sonraki seans model doğrulaması decision-grade", nextSessionForecastDecisionCurrent(result), nextSessionForecastDecisionOK(result), "Kısa vadeli fiyat/yön tahmini karar girdisi olacaksa model validasyonu, teknik karar kapısı ve güven eşiği birlikte geçmelidir.", "Aylık/rolling forecast audit sonucunu iyileştir veya bu modeli karar katmanından çıkar.")
+	add("quant_risk", "VaR/CVaR, volatilite, drawdown, Sharpe/Sortino ve benchmark beta", quantDecisionCurrent(result), quantDecisionOK(result), "Quant katmanı teknik/fundamental görüşün portföy riskiyle uyumlu olup olmadığını sayısallaştırır.", "Daha uzun OHLCV geçmişi ve benchmark verisini yenile; opsiyon zinciri varsa IV/Greeks katmanını bağla.")
+	add("statistical_economic_consistency", "veri bütünlüğü, faktör, rejim, stres, makro, finansal kalite, likidite ve validasyon >= limited", statEconomicCurrent(result), statEconomicOK(result), "Karar tutarlılığı tek modelden değil, birbirini doğrulayan istatistiksel/ekonomik katmanlardan gelmelidir.", "Eksik makro, benchmark, mikro yapı ve finansal veri uyarılarını kapat; walk-forward ve event-study örnek sayısını artır.")
 	add("financial_statements", "normalize bilanço, güncel dönem publish-date/available-at ve reconciliation", result.Professional.DataGovernance.AvailabilityStatus, financialStatementDecisionSafe(result), "Hisse değerlemesi için finansal tablo ve güncel dönem zaman güvenliği gerekir.", "Güncel dönem publish-date/available-at eksikse financials metadata ve reconcile adımlarını çalıştır.")
 	add("valuation", "içsel değer, güvenlik marjı ve sektör modeli", fmt.Sprintf("computed=%t confidence=%.1f", result.Professional.ValueInvesting.Computed, result.Professional.ValueInvesting.Confidence), result.Professional.ValueInvesting.Computed && result.Professional.ValueInvesting.Confidence >= 65 && !bankCoreMetricsMissingForDecision(result), "Kurumsal karar için teknik skorun finansal tezle desteklenmesi gerekir.", "valuation_assumptions ve sektör model eksiklerini tamamla.")
 	if isBankDecisionResult(result) {
@@ -530,6 +534,156 @@ func decisionSupportMinimums(result SymbolAnalysis, daily TimeframeAnalysis, has
 	add("kap_pdf_evidence", "KAP PDF/ek arşivi, OCR kalite kapısı ve kaynak indexi", fmt.Sprintf("computed=%t usable=%d/%d", result.Professional.KAPPDFIngest.Computed, result.Professional.KAPPDFIngest.AnalysisUsableCount, result.Professional.KAPPDFIngest.TotalDocuments), result.Professional.KAPPDFIngest.Computed && result.Professional.KAPPDFIngest.AnalysisUsableCount > 0, "Ham veri, kaynak ve sayfa kanıtı olmadan rapor kurumsal görünse de denetlenebilir değildir.", "sync kap-attachments, kap-document-archive ve kap-extract adımlarını çalıştır.")
 	add("peer_universe", "3+ güvenilir sektör peer", fmt.Sprintf("peer_count=%d classification=%.2f", result.Professional.Peers.PeerCount, result.Professional.Company.ClassificationConfidence), result.Professional.Peers.PeerCount >= 3 && result.Professional.Company.ClassificationConfidence >= 0.80, "Peer ve sektör sınıflaması değerleme çarpanlarını belirler.", "sync kap-sectors ve sync sectors adımlarını çalıştır.")
 	return reqs
+}
+
+func quantDecisionOK(result SymbolAnalysis) bool {
+	return result.Quant.Computed &&
+		result.Quant.Decision.Score >= 58 &&
+		result.Quant.Decision.RiskScore >= 50 &&
+		result.Quant.Risk.HistoricalVaR95Pct < 5
+}
+
+func quantDecisionGateStatus(result SymbolAnalysis) string {
+	if !result.Quant.Computed {
+		return "fail"
+	}
+	if result.Quant.Decision.RiskScore < 40 || result.Quant.Risk.HistoricalVaR95Pct >= 7 {
+		return "fail"
+	}
+	if !quantDecisionOK(result) {
+		return "limited"
+	}
+	return "pass"
+}
+
+func quantDecisionCurrent(result SymbolAnalysis) string {
+	if !result.Quant.Computed {
+		return "missing"
+	}
+	q := result.Quant
+	return fmt.Sprintf(
+		"score=%.1f risk=%.1f label=%s var95=%.2f%% cvar95=%.2f%% vol=%.2f%% mdd=%.2f%% beta=%.2f",
+		q.Decision.Score,
+		q.Decision.RiskScore,
+		emptyDecisionText(q.Decision.Label, "n/a"),
+		q.Risk.HistoricalVaR95Pct,
+		q.Risk.HistoricalCVaR95Pct,
+		q.Risk.AnnualizedVolatilityPct,
+		q.Risk.MaxDrawdownLossPct,
+		q.Benchmark.Beta60,
+	)
+}
+
+func quantDecisionEvidence(result SymbolAnalysis) []string {
+	if !result.Quant.Computed {
+		return result.Quant.Warnings
+	}
+	evidence := []string{result.Quant.Decision.Summary}
+	evidence = append(evidence, result.Quant.Decision.Passes...)
+	evidence = append(evidence, result.Quant.Decision.Warnings...)
+	evidence = append(evidence, result.Quant.Decision.Blockers...)
+	return evidence
+}
+
+func quantDecisionNextSteps(result SymbolAnalysis) []string {
+	if !result.Quant.Computed {
+		return []string{"Günlük OHLCV geçmişini en az 60-252 bar olacak şekilde yenile."}
+	}
+	steps := []string{}
+	if result.Quant.Decision.RiskScore < 50 {
+		steps = append(steps, "Pozisyon boyutunu VaR/CVaR limitine göre küçült veya trade planı riskini düşür.")
+	}
+	if result.Quant.Risk.HistoricalVaR95Pct >= 5 {
+		steps = append(steps, "1 günlük VaR yüksek; stop mesafesi ve sermaye riski birlikte tekrar hesaplanmalı.")
+	}
+	if !result.Quant.Benchmark.Available {
+		steps = append(steps, "Benchmark OHLCV verisini yenileyerek beta/alpha ve göreli güç katmanını tamamla.")
+	}
+	if len(steps) == 0 {
+		steps = append(steps, "Quant risk metriklerini periyodik güncelle ve portföy limitiyle izle.")
+	}
+	return steps
+}
+
+func statEconomicOK(result SymbolAnalysis) bool {
+	return result.StatEconomic.Computed &&
+		result.StatEconomic.CompositeScore >= 58 &&
+		result.StatEconomic.DataIntegrity.Score >= 55 &&
+		result.StatEconomic.Validation.ModelRisk != "high"
+}
+
+func statEconomicGateStatus(result SymbolAnalysis) string {
+	if !result.StatEconomic.Computed {
+		return "fail"
+	}
+	if result.StatEconomic.DataIntegrity.Score < 45 || result.StatEconomic.Validation.ModelRisk == "high" || result.StatEconomic.CompositeScore < 45 {
+		return "fail"
+	}
+	if !statEconomicOK(result) {
+		return "limited"
+	}
+	return "pass"
+}
+
+func statEconomicCurrent(result SymbolAnalysis) string {
+	if !result.StatEconomic.Computed {
+		return "missing"
+	}
+	s := result.StatEconomic
+	return fmt.Sprintf(
+		"composite=%.1f data=%.1f factor=%.1f regime=%.1f stress=%.1f macro=%.1f financial=%.1f liquidity=%.1f validation=%.1f model_risk=%s",
+		s.CompositeScore,
+		s.DataIntegrity.Score,
+		s.FactorModel.Score,
+		s.Regime.Score,
+		s.TailStress.Score,
+		s.MacroSensitivity.Score,
+		s.FinancialQuality.Score,
+		s.Liquidity.Score,
+		s.Validation.Score,
+		emptyDecisionText(s.Validation.ModelRisk, "unknown"),
+	)
+}
+
+func statEconomicEvidence(result SymbolAnalysis) []string {
+	if !result.StatEconomic.Computed {
+		return result.StatEconomic.Warnings
+	}
+	s := result.StatEconomic
+	evidence := []string{
+		fmt.Sprintf("regime=%s/%s drawdown=%s", s.Regime.TrendRegime, s.Regime.VolatilityRegime, s.Regime.DrawdownRegime),
+		fmt.Sprintf("tail var95=%.2f%% cvar95=%.2f%% stress=%.2f%%", s.TailStress.VaR95Pct, s.TailStress.CVaR95Pct, s.TailStress.StressWorstCaseReturnPct),
+		fmt.Sprintf("macro profile=%s rate=%s fx=%s inflation=%s", s.MacroSensitivity.SectorMacroProfile, s.MacroSensitivity.RateSensitivity, s.MacroSensitivity.FXSensitivity, s.MacroSensitivity.InflationSensitivity),
+	}
+	evidence = append(evidence, compactStrings(s.Warnings, 6)...)
+	return evidence
+}
+
+func statEconomicNextSteps(result SymbolAnalysis) []string {
+	if !result.StatEconomic.Computed {
+		return []string{"Günlük OHLCV, benchmark, finansal tablo ve makro veri setlerini yenile."}
+	}
+	steps := []string{}
+	s := result.StatEconomic
+	if s.DataIntegrity.Score < 70 {
+		steps = append(steps, "OHLCV veri bütünlüğünü, bölünme/temettü düzeltmelerini ve outlier mumları denetle.")
+	}
+	if s.MacroSensitivity.Score < 60 {
+		steps = append(steps, "TCMB EVDS, TÜİK ve piyasa makro serilerini point-in-time güvenli şekilde tamamla.")
+	}
+	if s.FinancialQuality.Score < 60 {
+		steps = append(steps, "Finansal kalite için bilanço oran geçmişi, nakit akımı ve restatement kontrollerini tamamla.")
+	}
+	if s.Validation.Score < 60 {
+		steps = append(steps, "Walk-forward, event-study ve forecast audit örnek sayısını artır.")
+	}
+	if s.Liquidity.Score < 60 {
+		steps = append(steps, "Likidite, spread ve market impact verilerini güncelle; pozisyon kapasitesini küçült.")
+	}
+	if len(steps) == 0 {
+		steps = append(steps, "Stat/economic skorlarını her veri güncellemesinde yeniden hesapla.")
+	}
+	return steps
 }
 
 func financialStatementDecisionSafe(result SymbolAnalysis) bool {

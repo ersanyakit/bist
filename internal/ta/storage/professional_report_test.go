@@ -1094,6 +1094,8 @@ func TestWriteAnalysisCreatesProfessionalResearchArtifacts(t *testing.T) {
 		"kap_pdf_financial_analysis.json",
 		"valuation_model.json",
 		"buffett_value_checklist.json",
+		"quant_risk_report.json",
+		"stat_economic_report.json",
 		"technical_trade_plan.json",
 		"tek_bakis_ozet.png",
 		"rapor_veri_manifesti.json",

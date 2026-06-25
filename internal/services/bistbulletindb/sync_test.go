@@ -1,6 +1,11 @@
 package bistbulletindb
 
 import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +14,44 @@ import (
 
 	"github.com/xuri/excelize/v2"
 )
+
+func TestSyncDownloadsRemoteTHBZipAndImportsSQLite(t *testing.T) {
+	day := time.Date(2026, 6, 24, 0, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/2026/06/thb202606241.zip" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/zip")
+		_, _ = w.Write(thbCSVZipFixture(t, "thb202606241.csv"))
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	report, err := Sync(context.Background(), Options{
+		DBPath:   filepath.Join(root, "bist_ohlcv.sqlite"),
+		RawRoot:  filepath.Join(root, "raw", "bulten_verileri"),
+		BaseURL:  server.URL,
+		FromDate: day,
+		ToDate:   day,
+		Session:  1,
+		Download: true,
+		Timeout:  time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+	if report.RemoteDownloaded != 1 || report.LocalSourcesImported != 1 || report.RowsStored != 1 {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+	if report.DatabaseCandles != 1 || report.DatabaseSymbols != 1 {
+		t.Fatalf("unexpected db counts: %+v", report)
+	}
+	extracted := filepath.Join(root, "raw", "bulten_verileri", "2026", "06", "20260624_s1", "extracted", "thb202606241.csv")
+	if _, err := os.Stat(extracted); err != nil {
+		t.Fatalf("extracted THB file missing: %v", err)
+	}
+}
 
 func TestScanAndParseXLSXBulletinFile(t *testing.T) {
 	root := t.TempDir()
@@ -52,6 +95,29 @@ func TestScanAndParseXLSXBulletinFile(t *testing.T) {
 	if rec.InstrumentCode != "ASELS.E" || rec.CompanyName == "" || rec.Market != "PAY PIYASASI" {
 		t.Fatalf("instrument fields not parsed: %+v", rec)
 	}
+}
+
+func thbCSVZipFixture(t *testing.T, filename string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	f, err := zw.Create(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := strings.Join([]string{
+		"ISLEM KODU;BULTEN ADI;PAZAR;ONCEKI KAPANIS FIYATI;ACILIS FIYATI;EN DUSUK FIYAT;EN YUKSEK FIYAT;KAPANIS FIYATI;TOPLAM ISLEM ADEDI;TOPLAM ISLEM HACMI;TOPLAM SOZLESME SAYISI;A.O.F",
+		"INSTRUMENT SERIES CODE;INSTRUMENT NAME;MARKET SEGMENT;PREVIOUS LAST PRICE;OPENING PRICE;LOWEST PRICE;HIGHEST PRICE;CLOSING PRICE;TOTAL TRADED VOLUME;TOTAL TRADED VALUE;TOTAL NUMBER OF CONTRACTS;VWAP",
+		"ASELS.E;ASELSAN ELEKTRONIK SANAYI VE TICARET A.S.;PAY PIYASASI;400.00;401.00;399.50;405.00;404.25;123456;50000000;3210;403.00",
+		"",
+	}, "\n")
+	if _, err := f.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
 }
 
 func writeBISTBulletinDBXLSXFixture(t *testing.T, root, yyyymmdd string, row []string) string {

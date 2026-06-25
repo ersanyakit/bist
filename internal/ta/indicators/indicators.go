@@ -29,27 +29,28 @@ func Snapshot(candles []ohlcv.Candle) (ohlcv.IndicatorSnapshot, error) {
 	supertrendCurrent, supertrendPrev := SupertrendLastTwo(candles, 10, 3)
 
 	return ohlcv.IndicatorSnapshot{
-		SMA5:                       SMA(closes, 5),
-		SMA10:                      SMA(closes, 10),
-		SMA20:                      SMA(closes, 20),
-		SMA50:                      SMA(closes, 50),
-		SMA100:                     SMA(closes, 100),
-		SMA200:                     SMA(closes, 200),
-		EMA5:                       EMA(closes, 5),
-		EMA10:                      EMA(closes, 10),
-		EMA20:                      EMA(closes, 20),
-		EMA50:                      EMA(closes, 50),
-		EMA100:                     EMA(closes, 100),
-		EMA200:                     EMA(closes, 200),
-		RSI14:                      RSI(closes, 14),
-		ATR14:                      ATR(candles, 14),
-		MACD:                       macdLine,
-		MACDSignal:                 signalLine,
-		MACDHistogram:              hist,
-		BollingerUpper:             upper,
-		BollingerMiddle:            middle,
-		BollingerLower:             lower,
-		ADX14:                      ADX(candles, 14),
+		SMA5:            SMA(closes, 5),
+		SMA10:           SMA(closes, 10),
+		SMA20:           SMA(closes, 20),
+		SMA50:           SMA(closes, 50),
+		SMA100:          SMA(closes, 100),
+		SMA200:          SMA(closes, 200),
+		EMA5:            EMA(closes, 5),
+		EMA10:           EMA(closes, 10),
+		EMA20:           EMA(closes, 20),
+		EMA50:           EMA(closes, 50),
+		EMA100:          EMA(closes, 100),
+		EMA200:          EMA(closes, 200),
+		RSI14:           RSI(closes, 14),
+		ATR14:           ATR(candles, 14),
+		MACD:            macdLine,
+		MACDSignal:      signalLine,
+		MACDHistogram:   hist,
+		BollingerUpper:  upper,
+		BollingerMiddle: middle,
+		BollingerLower:  lower,
+		ADX14:           ADX(candles, 14),
+		// Snapshot VWAP is a rolling/anchored 20-bar VWAP, not full-history VWAP.
 		VWAP:                       AnchoredVWAP(candles, maxInt(0, len(candles)-20)),
 		OBV:                        OBV(candles),
 		OBVSlope:                   OBVSlope(candles, 20),
@@ -256,16 +257,22 @@ func ATRSeries(candles []ohlcv.Candle, period int) []float64 {
 }
 
 func MACD(values []float64, fast, slow, signal int) (float64, float64, float64) {
-	if len(values) == 0 || len(values) < slow+signal-1 {
+	if len(values) == 0 || fast <= 0 || slow <= 0 || signal <= 0 || len(values) < slow+signal-1 {
 		return 0, 0, 0
 	}
 	fastEMA := EMASeries(values, fast)
 	slowEMA := EMASeries(values, slow)
+	if fastEMA == nil || slowEMA == nil {
+		return 0, 0, 0
+	}
 	line := make([]float64, len(values))
 	for i := slow - 1; i < len(values); i++ {
 		line[i] = fastEMA[i] - slowEMA[i]
 	}
 	signalSeries := EMASeries(line[slow-1:], signal)
+	if len(signalSeries) == 0 {
+		return 0, 0, 0
+	}
 	last := len(values) - 1
 	macdLine := line[last]
 	sig := signalSeries[len(signalSeries)-1]
@@ -273,7 +280,7 @@ func MACD(values []float64, fast, slow, signal int) (float64, float64, float64) 
 }
 
 func BollingerBands(values []float64, period int, multiplier float64) (float64, float64, float64) {
-	if len(values) < period {
+	if period <= 0 || len(values) < period {
 		return 0, 0, 0
 	}
 	window := values[len(values)-period:]
@@ -414,6 +421,9 @@ func MFI(candles []ohlcv.Candle, period int) float64 {
 }
 
 func StochasticRSI(values []float64, rsiPeriod, stochPeriod, kPeriod, dPeriod int) (float64, float64) {
+	if rsiPeriod <= 0 || stochPeriod <= 0 || kPeriod <= 0 || dPeriod <= 0 {
+		return 50, 50
+	}
 	rsi := RSISeries(values, rsiPeriod)
 	if len(rsi) == 0 {
 		return 50, 50
@@ -445,7 +455,7 @@ func StochasticRSI(values []float64, rsiPeriod, stochPeriod, kPeriod, dPeriod in
 }
 
 func StochasticOscillator(candles []ohlcv.Candle, kPeriod, dPeriod int) (float64, float64) {
-	if len(candles) == 0 {
+	if len(candles) == 0 || kPeriod <= 0 || dPeriod <= 0 {
 		return 50, 50
 	}
 	rawK := make([]float64, len(candles))
@@ -493,7 +503,7 @@ func partialSMA(values []float64, period int) float64 {
 }
 
 func CCI(typicals []float64, period int) float64 {
-	if len(typicals) == 0 {
+	if len(typicals) == 0 || period <= 0 {
 		return 0
 	}
 	start := len(typicals) - period
@@ -511,7 +521,7 @@ func CCI(typicals []float64, period int) float64 {
 }
 
 func WilliamsR(candles []ohlcv.Candle, period int) float64 {
-	if len(candles) == 0 {
+	if len(candles) == 0 || period <= 0 {
 		return -50
 	}
 	start := len(candles) - period
@@ -540,6 +550,29 @@ func ROC(values []float64, period int) float64 {
 	return 100 * mathutil.SafeDiv(values[len(values)-1]-old, math.Max(math.Abs(old), mathutil.Epsilon))
 }
 
+func DailyReturn(values []float64) float64 {
+	if len(values) < 2 {
+		return 0
+	}
+	prev := values[len(values)-2]
+	return 100 * mathutil.SafeDiv(values[len(values)-1]-prev, absDenominator(prev))
+}
+
+func DailyLogReturn(values []float64) float64 {
+	if len(values) < 2 || values[len(values)-1] <= 0 || values[len(values)-2] <= 0 {
+		return 0
+	}
+	return 100 * math.Log(values[len(values)-1]/values[len(values)-2])
+}
+
+func CumulativeReturn(values []float64) float64 {
+	if len(values) < 2 {
+		return 0
+	}
+	first := values[0]
+	return 100 * mathutil.SafeDiv(values[len(values)-1]-first, absDenominator(first))
+}
+
 func HighsLows(candles []ohlcv.Candle, period int) float64 {
 	if len(candles) == 0 || period <= 0 {
 		return 0
@@ -561,7 +594,7 @@ func Supertrend(candles []ohlcv.Candle, period int, multiplier float64) float64 
 // SupertrendLastTwo returns the Supertrend values for the last two bars (current, previous).
 // prev is 0 when there is insufficient history. Use prev to detect crossovers.
 func SupertrendLastTwo(candles []ohlcv.Candle, period int, multiplier float64) (current, prev float64) {
-	if len(candles) == 0 {
+	if len(candles) == 0 || period <= 0 {
 		return 0, 0
 	}
 	atr := ATRSeries(candles, period)
@@ -642,7 +675,7 @@ func OBVSlope(candles []ohlcv.Candle, period int) float64 {
 }
 
 func Donchian(candles []ohlcv.Candle, period int) (float64, float64) {
-	if len(candles) == 0 {
+	if len(candles) == 0 || period <= 0 {
 		return 0, 0
 	}
 	start := len(candles) - period
@@ -660,7 +693,7 @@ func Donchian(candles []ohlcv.Candle, period int) (float64, float64) {
 }
 
 func Keltner(candles []ohlcv.Candle, emaPeriod, atrPeriod int, multiplier float64) (float64, float64, float64) {
-	if len(candles) == 0 {
+	if len(candles) == 0 || emaPeriod <= 0 || atrPeriod <= 0 {
 		return 0, 0, 0
 	}
 	middle := EMA(closes(candles), emaPeriod)
@@ -669,7 +702,7 @@ func Keltner(candles []ohlcv.Candle, emaPeriod, atrPeriod int, multiplier float6
 }
 
 func ChaikinMoneyFlow(candles []ohlcv.Candle, period int) float64 {
-	if len(candles) == 0 {
+	if len(candles) == 0 || period <= 0 {
 		return 0
 	}
 	start := len(candles) - period
@@ -697,6 +730,9 @@ func AccumulationDistribution(candles []ohlcv.Candle) float64 {
 }
 
 func Ichimoku(candles []ohlcv.Candle, tenkanPeriod, kijunPeriod, senkouBPeriod int) (float64, float64, float64, float64, float64, float64, float64, float64, float64) {
+	if tenkanPeriod <= 0 || kijunPeriod <= 0 || senkouBPeriod <= 0 {
+		return 0, 0, 0, 0, 0, 0, 0, 0, 0
+	}
 	tenkanHigh, tenkanLow := highLowWindow(candles, tenkanPeriod)
 	kijunHigh, kijunLow := highLowWindow(candles, kijunPeriod)
 	senkouHigh, senkouLow := highLowWindow(candles, senkouBPeriod)
@@ -847,7 +883,11 @@ func AdditionalIndicators(candles []ohlcv.Candle) map[string]float64 {
 	result["Positive Volume Index"] = PositiveVolumeIndex(candles)
 	result["Volume Price Trend"] = VolumePriceTrend(candles)
 	result["Volume Weighted Moving Average"] = VWMA(candles, 20)
-	result["Volume Oscillator"] = 100 * mathutil.SafeDiv(EMA(vol, 5)-EMA(vol, 20), EMA(vol, 20))
+	result["Volume Oscillator"] = PVO(vol, 5, 20)
+	pvoLine, pvoSignal, pvoHistogram := PVOLines(vol, 12, 26, 9)
+	result["Percentage Volume Oscillator"] = pvoLine
+	result["PVO Signal Line"] = pvoSignal
+	result["PVO Histogram"] = pvoHistogram
 	klinger, klingerSignal := KlingerOscillator(candles)
 	result["Klinger Oscillator"] = klinger
 	result["Klinger Oscillator Signal"] = klingerSignal
@@ -1060,7 +1100,7 @@ func ALMA(values []float64, period int, offset, sigma float64) float64 {
 }
 
 func KAMA(values []float64, period, fast, slow int) float64 {
-	if len(values) == 0 {
+	if len(values) == 0 || period <= 0 || fast <= 0 || slow <= 0 {
 		return 0
 	}
 	kama := values[0]
@@ -1084,6 +1124,9 @@ func KAMA(values []float64, period, fast, slow int) float64 {
 }
 
 func DEMA(values []float64, period int) float64 {
+	if period <= 0 {
+		return 0
+	}
 	ema1 := EMASeries(values, period)
 	if len(ema1) < period {
 		return 0
@@ -1096,6 +1139,9 @@ func DEMA(values []float64, period int) float64 {
 }
 
 func TEMA(values []float64, period int) float64 {
+	if period <= 0 {
+		return 0
+	}
 	ema1 := EMASeries(values, period)
 	if len(ema1) < period {
 		return 0
@@ -1112,6 +1158,9 @@ func TEMA(values []float64, period int) float64 {
 }
 
 func TRIX(values []float64, period int) float64 {
+	if period <= 0 {
+		return 0
+	}
 	ema1 := EMASeries(values, period)
 	if len(ema1) < period {
 		return 0
@@ -1265,7 +1314,7 @@ func Aroon(candles []ohlcv.Candle, period int) (float64, float64) {
 }
 
 func Vortex(candles []ohlcv.Candle, period int) (float64, float64) {
-	if len(candles) < 2 {
+	if len(candles) < 2 || period <= 0 {
 		return 0, 0
 	}
 	start := maxInt(1, len(candles)-period)
@@ -1281,7 +1330,7 @@ func Vortex(candles []ohlcv.Candle, period int) (float64, float64) {
 
 func ChandeKrollStop(candles []ohlcv.Candle, period, stopPeriod int, multiplier float64) (float64, float64) {
 	n := len(candles)
-	if n < period {
+	if period <= 0 || stopPeriod <= 0 || n < period {
 		return 0, 0
 	}
 	atrSeries := ATRSeries(candles, period)
@@ -1313,7 +1362,7 @@ func ChandeKrollStop(candles []ohlcv.Candle, period, stopPeriod int, multiplier 
 }
 
 func Momentum(values []float64, period int) float64 {
-	if len(values) <= period {
+	if period <= 0 || len(values) <= period {
 		return 0
 	}
 	return values[len(values)-1] - values[len(values)-1-period]
@@ -1332,6 +1381,9 @@ func UltimateOscillator(candles []ohlcv.Candle) float64 {
 }
 
 func ultimate(candles []ohlcv.Candle, p1, p2, p3 int) float64 {
+	if len(candles) == 0 || p1 <= 0 || p2 <= 0 || p3 <= 0 {
+		return 0
+	}
 	bp := make([]float64, len(candles))
 	tr := make([]float64, len(candles))
 	for i := range candles {
@@ -1349,7 +1401,7 @@ func ultimate(candles []ohlcv.Candle, p1, p2, p3 int) float64 {
 }
 
 func TrueStrengthIndex(values []float64, longPeriod, shortPeriod int) float64 {
-	if len(values) < 2 {
+	if len(values) < 2 || longPeriod <= 0 || shortPeriod <= 0 {
 		return 0
 	}
 	momentum := make([]float64, len(values)-1)
@@ -1372,7 +1424,7 @@ func TrueStrengthIndex(values []float64, longPeriod, shortPeriod int) float64 {
 }
 
 func ChandeMomentumOscillator(values []float64, period int) float64 {
-	if len(values) < 2 {
+	if len(values) < 2 || period <= 0 {
 		return 0
 	}
 	start := maxInt(1, len(values)-period)
@@ -1442,7 +1494,7 @@ func RelativeVigorIndex(candles []ohlcv.Candle, period int) float64 {
 }
 
 func ElderRay(candles []ohlcv.Candle, period int) (float64, float64) {
-	if len(candles) == 0 {
+	if len(candles) == 0 || period <= 0 {
 		return 0, 0
 	}
 	ema := EMA(closes(candles), period)
@@ -1451,7 +1503,7 @@ func ElderRay(candles []ohlcv.Candle, period int) (float64, float64) {
 }
 
 func FisherTransform(candles []ohlcv.Candle, period int) float64 {
-	if len(candles) == 0 {
+	if len(candles) == 0 || period <= 0 {
 		return 0
 	}
 	high, low := highLowWindow(candles, period)
@@ -1509,6 +1561,9 @@ func ConnorsRSI(values []float64) float64 {
 }
 
 func DPO(values []float64, period int) float64 {
+	if period <= 0 {
+		return 0
+	}
 	shift := period/2 + 1
 	// Need at least period+shift values: shift bars ago we must still have a full period window.
 	if len(values) < period+shift {
@@ -1523,12 +1578,43 @@ func DPO(values []float64, period int) float64 {
 }
 
 func PPO(values []float64, fast, slow int) float64 {
+	if fast <= 0 || slow <= 0 {
+		return 0
+	}
 	slowEMA := EMA(values, slow)
 	return 100 * mathutil.SafeDiv(EMA(values, fast)-slowEMA, absDenominator(slowEMA))
 }
 
+func PVOLines(values []float64, fast, slow, signal int) (float64, float64, float64) {
+	if len(values) == 0 || fast <= 0 || slow <= 0 || signal <= 0 || len(values) < slow+signal-1 {
+		return 0, 0, 0
+	}
+	fastEMA := EMASeries(values, fast)
+	slowEMA := EMASeries(values, slow)
+	if fastEMA == nil || slowEMA == nil {
+		return 0, 0, 0
+	}
+	line := make([]float64, len(values))
+	for i := slow - 1; i < len(values); i++ {
+		line[i] = 100 * mathutil.SafeDiv(fastEMA[i]-slowEMA[i], slowEMA[i])
+	}
+	signalSeries := EMASeries(line[slow-1:], signal)
+	if len(signalSeries) == 0 {
+		pvo := line[len(line)-1]
+		return pvo, 0, pvo
+	}
+	pvo := line[len(line)-1]
+	sig := signalSeries[len(signalSeries)-1]
+	return pvo, sig, pvo - sig
+}
+
+func PVO(values []float64, fast, slow int) float64 {
+	pvo, _, _ := PVOLines(values, fast, slow, 1)
+	return pvo
+}
+
 func StochasticMomentumIndex(candles []ohlcv.Candle, period, smooth int) (float64, float64) {
-	if len(candles) == 0 {
+	if len(candles) == 0 || period <= 0 || smooth <= 0 {
 		return 0, 0
 	}
 	values := make([]float64, len(candles))
@@ -1689,6 +1775,9 @@ func AnchoredVWAP(candles []ohlcv.Candle, anchor int) float64 {
 }
 
 func HistoricalVolatility(values []float64, period int) float64 {
+	if period <= 0 {
+		return 0
+	}
 	window := lastValues(values, period+1)
 	if len(window) < 2 {
 		return 0
@@ -1703,6 +1792,9 @@ func HistoricalVolatility(values []float64, period int) float64 {
 }
 
 func ChaikinVolatility(candles []ohlcv.Candle, emaPeriod, rocPeriod int) float64 {
+	if emaPeriod <= 0 || rocPeriod <= 0 {
+		return 0
+	}
 	ranges := make([]float64, len(candles))
 	for i, candle := range candles {
 		ranges[i] = candle.EffectiveHigh() - candle.EffectiveLow()
@@ -1712,6 +1804,9 @@ func ChaikinVolatility(candles []ohlcv.Candle, emaPeriod, rocPeriod int) float64
 }
 
 func MassIndex(candles []ohlcv.Candle, period int) float64 {
+	if period <= 0 {
+		return 0
+	}
 	ranges := make([]float64, len(candles))
 	for i, candle := range candles {
 		ranges[i] = candle.EffectiveHigh() - candle.EffectiveLow()
@@ -1746,7 +1841,7 @@ func UlcerIndex(values []float64, period int) float64 {
 
 func RelativeVolatilityIndex(values []float64, period int) float64 {
 	n := len(values)
-	if n < period+1 {
+	if period <= 0 || n < period+1 {
 		return 50
 	}
 	// Dorsey RVI: rolling StdDev of closes, split by direction, smoothed with EMA
@@ -2216,7 +2311,7 @@ func typicalPrices(candles []ohlcv.Candle) []float64 {
 }
 
 func highLowWindow(candles []ohlcv.Candle, period int) (float64, float64) {
-	if len(candles) == 0 {
+	if len(candles) == 0 || period <= 0 {
 		return 0, 0
 	}
 	start := len(candles) - period

@@ -83,6 +83,8 @@ type SymbolAnalysis struct {
 	NextSessionForecast     NextSessionForecast               `json:"next_session_forecast"`
 	MLForecast              taml.ForecastReport               `json:"ml_forecast"`
 	Professional            professional.Report               `json:"professional"`
+	Quant                   QuantAnalysis                     `json:"quant"`
+	StatEconomic            StatEconomicAnalysis              `json:"stat_economic"`
 	FinTradeBench           fintradebench.Report              `json:"fintradebench"`
 	Behavioral              contrarian.Report                 `json:"behavioral"`
 	InvestorQA              investorqa.Report                 `json:"investor_qa"`
@@ -411,6 +413,8 @@ func (e *Engine) AnalyzeSymbol(ctx context.Context, req SymbolRequest) (SymbolAn
 	technicalOverall := averageTimeframeScore(result.Timeframes)
 	result.OverallScore = technicalOverall
 	result.Professional = e.professionalReport(ctx, result, corporateActions)
+	result.Quant = BuildQuantAnalysis(result)
+	result.StatEconomic = BuildStatEconomicAnalysis(result)
 	if ftbTF, ok := selectFinTradeBenchTimeframe(result.Timeframes); ok {
 		result.FinTradeBench = fintradebench.Analyze(fintradebench.Input{
 			Symbol:       result.Symbol,
@@ -427,6 +431,9 @@ func (e *Engine) AnalyzeSymbol(ctx context.Context, req SymbolRequest) (SymbolAn
 	result = ApplyBISTEquityTickSizeToTechnicalLevels(result)
 	result.Behavioral = e.behavioralReport(result)
 	result.OverallScore = integratedOverallScore(technicalOverall, result.Professional, result.AssetType)
+	if !ohlcv.IsCryptoAssetType(result.AssetType) && !ohlcv.IsCommodityAssetType(result.AssetType) {
+		result.OverallScore = applyQuantAdjustment(result.OverallScore, result.Quant)
+	}
 	result.MTFAlignment = multiTimeframeAlignment(result.Timeframes)
 	result.OverallScore = applyMTFAlignmentAdjustment(result.OverallScore, result.MTFAlignment)
 	result.OverallBias = overallBias(result.Timeframes, result.OverallScore)
