@@ -66,7 +66,7 @@ func (w *FileReportWriter) WriteAnalysis(ctx context.Context, equitiesDir string
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("write analysis canceled: %w", err)
 	}
-	result = hydrateDerivedReportFields(equitiesDir, result)
+	result = hydrateDerivedReportFields(ctx, equitiesDir, result)
 	canonical := result
 	reportResult := result
 	if shouldLoadKAPRawDataForReport(equitiesDir, result) {
@@ -263,7 +263,7 @@ func (w *FileReportWriter) WriteAnalysis(ctx context.Context, equitiesDir string
 	return nil
 }
 
-func hydrateDerivedReportFields(equitiesDir string, result analysis.SymbolAnalysis) analysis.SymbolAnalysis {
+func hydrateDerivedReportFields(ctx context.Context, equitiesDir string, result analysis.SymbolAnalysis) analysis.SymbolAnalysis {
 	result = analysis.ApplyBISTEquityTickSizeToTechnicalLevels(result)
 	result = hydrateNextSessionForecast(result)
 	result = hydrateVAPContext(equitiesDir, result)
@@ -272,10 +272,13 @@ func hydrateDerivedReportFields(equitiesDir string, result analysis.SymbolAnalys
 	result = analysis.ApplyBISTEquityTickSizeToTechnicalLevels(result)
 	result = analysis.ApplyNextSessionForecastQualityContext(result)
 	result = refreshReportDecisionFields(result)
-	return hydrateMLForecast(equitiesDir, result)
+	return hydrateMLForecast(ctx, equitiesDir, result)
 }
 
-func hydrateMLForecast(equitiesDir string, result analysis.SymbolAnalysis) analysis.SymbolAnalysis {
+func hydrateMLForecast(ctx context.Context, equitiesDir string, result analysis.SymbolAnalysis) analysis.SymbolAnalysis {
+	if ctx == nil {
+		ctx = context.TODO()
+	}
 	cfg := taml.LoadRuntimeConfig("")
 	report := taml.ForecastReport{
 		Enabled:           cfg.ML.Enabled,
@@ -312,7 +315,7 @@ func hydrateMLForecast(equitiesDir string, result analysis.SymbolAnalysis) analy
 	}
 	deterministic := deterministicInputFromForecast(result.NextSessionForecast)
 	selection := taml.SelectRuntimeModels(filepath.Dir(equitiesDir), cfg, true)
-	ens := ensemble.RunShadow(context.Background(), fv, deterministic, selection.Models, cfg)
+	ens := ensemble.RunShadow(ctx, fv, deterministic, selection.Models, cfg)
 	if selection.Fallback.Used {
 		ens.Fallback = selection.Fallback
 	}

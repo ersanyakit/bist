@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"hissebot/internal/config"
-	"hissebot/internal/storage"
+	"hissebot/internal/repositories"
 	"hissebot/internal/util"
 )
 
@@ -20,7 +20,7 @@ type ExportReport struct {
 	Source        string `json:"source"`
 }
 
-func ExportCurrentUniverse(ctx context.Context, cfg config.Config, store *storage.EquityStore) (ExportReport, error) {
+func ExportCurrentUniverse(ctx context.Context, cfg config.Config, store repositories.EquityRepository) (ExportReport, error) {
 	equities, err := store.List()
 	if err != nil {
 		return ExportReport{}, err
@@ -36,7 +36,7 @@ func ExportCurrentUniverse(ctx context.Context, cfg config.Config, store *storag
 		if equity.AssetType != 0 && equity.AssetType != 2 {
 			continue
 		}
-		ticker := storage.NormalizeTicker(equity.Ticker)
+		ticker := normalizeTicker(equity.Ticker)
 		if ticker == "" {
 			continue
 		}

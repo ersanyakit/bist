@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"hissebot/internal/ta/ohlcv"
+	"hissebot/internal/ta/scanmatch"
 	"hissebot/pkg/mathutil"
 )
 
@@ -2633,14 +2634,9 @@ func chartTransformProxy(name string, c []ohlcv.Candle) float64 {
 }
 
 func normalizeIndicatorText(value string) string {
-	value = strings.ToLower(value)
-	value = strings.ReplaceAll(value, "-", " ")
-	value = strings.ReplaceAll(value, "_", " ")
-	value = strings.ReplaceAll(value, "%", " percent ")
-	value = strings.ReplaceAll(value, "+", " plus ")
-	value = strings.ReplaceAll(value, "&", " and ")
-	for strings.Contains(value, "  ") {
-		value = strings.ReplaceAll(value, "  ", " ")
-	}
-	return strings.TrimSpace(value)
+	return scanmatch.NormalizeText(value,
+		scanmatch.Replacement{Old: "%", New: " percent "},
+		scanmatch.Replacement{Old: "+", New: " plus "},
+		scanmatch.Replacement{Old: "&", New: " and "},
+	)
 }

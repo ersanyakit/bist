@@ -1,5 +1,21 @@
 package confidence
 
+const (
+	BaseScore                     = 0.20
+	StructuredSourceWeight        = 0.35
+	PDFTextWeight                 = 0.18
+	DocumentIDWeight              = 0.10
+	PageWeight                    = 0.08
+	TableWeight                   = 0.10
+	RowColumnWeight               = 0.08
+	ValidationPassedWeight        = 0.18
+	ValidationWarningPenalty      = 0.08
+	InferredPenalty               = 0.18
+	OCRPenalty                    = 0.25
+	ContradictionPenalty          = 0.35
+	ReviewRequiredThreshold       = 0.75
+)
+
 type EvidenceSignals struct {
 	StructuredSource  bool
 	PDFText           bool
@@ -15,39 +31,39 @@ type EvidenceSignals struct {
 }
 
 func Score(signals EvidenceSignals) float64 {
-	score := 0.20
+	score := BaseScore
 	if signals.StructuredSource {
-		score += 0.35
+		score += StructuredSourceWeight
 	}
 	if signals.PDFText {
-		score += 0.18
+		score += PDFTextWeight
 	}
 	if signals.HasDocumentID {
-		score += 0.10
+		score += DocumentIDWeight
 	}
 	if signals.HasPage {
-		score += 0.08
+		score += PageWeight
 	}
 	if signals.HasTable {
-		score += 0.10
+		score += TableWeight
 	}
 	if signals.HasRowColumn {
-		score += 0.08
+		score += RowColumnWeight
 	}
 	if signals.ValidationPassed {
-		score += 0.18
+		score += ValidationPassedWeight
 	}
 	if signals.ValidationWarning {
-		score -= 0.08
+		score -= ValidationWarningPenalty
 	}
 	if signals.Inferred {
-		score -= 0.18
+		score -= InferredPenalty
 	}
 	if signals.OCR {
-		score -= 0.25
+		score -= OCRPenalty
 	}
 	if signals.Contradiction {
-		score -= 0.35
+		score -= ContradictionPenalty
 	}
 	if score < 0 {
 		return 0
@@ -59,5 +75,5 @@ func Score(signals EvidenceSignals) float64 {
 }
 
 func ReviewRequired(score float64) bool {
-	return score < 0.75
+	return score < ReviewRequiredThreshold
 }

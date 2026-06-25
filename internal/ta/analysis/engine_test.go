@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"hissebot/internal/services/pricequality"
+	"hissebot/internal/domain/pricequality"
 	"hissebot/internal/ta/chart"
 	"hissebot/internal/ta/datasource"
 	"hissebot/internal/ta/formations"

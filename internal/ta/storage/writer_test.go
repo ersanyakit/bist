@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"path/filepath"
 	"testing"
@@ -94,7 +95,7 @@ func TestHydratedAnalysisJSONIncludesMLForecastAdditively(t *testing.T) {
 		},
 		Disclaimer: ohlcv.Disclaimer,
 	}
-	hydrated := hydrateDerivedReportFields(filepath.Join(t.TempDir(), "equities"), result)
+	hydrated := hydrateDerivedReportFields(context.Background(), filepath.Join(t.TempDir(), "equities"), result)
 	raw, err := json.Marshal(hydrated)
 	if err != nil {
 		t.Fatalf("marshal hydrated: %v", err)

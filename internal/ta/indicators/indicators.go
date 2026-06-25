@@ -96,6 +96,28 @@ func Snapshot(candles []ohlcv.Candle) (ohlcv.IndicatorSnapshot, error) {
 
 var ErrInsufficientData = fmt.Errorf("insufficient data")
 
+const (
+	cciMeanDeviationScale = 0.015
+
+	fibRetracement236 = 0.236
+	fibRetracement382 = 0.382
+	fibRetracement500 = 0.500
+	fibRetracement618 = 0.618
+	fibRetracement786 = 0.786
+	fibExtension272   = 0.272
+)
+
+var fibonacciRetracementLevels = []struct {
+	key   string
+	ratio float64
+}{
+	{key: "0.236", ratio: fibRetracement236},
+	{key: "0.382", ratio: fibRetracement382},
+	{key: "0.500", ratio: fibRetracement500},
+	{key: "0.618", ratio: fibRetracement618},
+	{key: "0.786", ratio: fibRetracement786},
+}
+
 func SMA(values []float64, period int) float64 {
 	if period <= 0 || len(values) == 0 {
 		return 0
@@ -517,7 +539,7 @@ func CCI(typicals []float64, period int) float64 {
 		meanDeviation += math.Abs(value - mean)
 	}
 	meanDeviation = mathutil.SafeDiv(meanDeviation, float64(len(window)))
-	return mathutil.SafeDiv(typicals[len(typicals)-1]-mean, 0.015*meanDeviation)
+	return mathutil.SafeDiv(typicals[len(typicals)-1]-mean, cciMeanDeviationScale*meanDeviation)
 }
 
 func WilliamsR(candles []ohlcv.Candle, period int) float64 {
@@ -805,17 +827,23 @@ func pivotSourceCandle(candles []ohlcv.Candle) (ohlcv.Candle, bool) {
 }
 
 func FibonacciLevels(candles []ohlcv.Candle) map[string]float64 {
-	levels := map[string]float64{"0.236": 0, "0.382": 0, "0.500": 0, "0.618": 0, "0.786": 0}
+	levels := zeroFibonacciRetracementLevels()
 	if len(candles) == 0 {
 		return levels
 	}
 	highest, lowest := highLowWindow(candles, minInt(120, len(candles)))
 	diff := highest - lowest
-	levels["0.236"] = highest - diff*0.236
-	levels["0.382"] = highest - diff*0.382
-	levels["0.500"] = highest - diff*0.5
-	levels["0.618"] = highest - diff*0.618
-	levels["0.786"] = highest - diff*0.786
+	for _, level := range fibonacciRetracementLevels {
+		levels[level.key] = highest - diff*level.ratio
+	}
+	return levels
+}
+
+func zeroFibonacciRetracementLevels() map[string]float64 {
+	levels := make(map[string]float64, len(fibonacciRetracementLevels))
+	for _, level := range fibonacciRetracementLevels {
+		levels[level.key] = 0
+	}
 	return levels
 }
 
@@ -1899,12 +1927,12 @@ func FibonacciPivots(candles []ohlcv.Candle) map[string]float64 {
 	}
 	p, _, _, _, _ := PivotPoints(candles)
 	r := c.EffectiveHigh() - c.EffectiveLow()
-	out["R1"] = p + 0.382*r
-	out["R2"] = p + 0.618*r
+	out["R1"] = p + fibRetracement382*r
+	out["R2"] = p + fibRetracement618*r
 	out["R3"] = p + r
 	out["P"] = p
-	out["S1"] = p - 0.382*r
-	out["S2"] = p - 0.618*r
+	out["S1"] = p - fibRetracement382*r
+	out["S2"] = p - fibRetracement618*r
 	out["S3"] = p - r
 	return out
 }
@@ -1991,9 +2019,9 @@ func FibonacciExtensions(candles []ohlcv.Candle) map[string]float64 {
 	high := mathutil.Max(highs(candles))
 	low := mathutil.Min(lows(candles))
 	diff := high - low
-	out["1.272"] = high + diff*0.272
-	out["1.618"] = high + diff*0.618
-	out["fan_0.618"] = low + diff*0.618
+	out["1.272"] = high + diff*fibExtension272
+	out["1.618"] = high + diff*fibRetracement618
+	out["fan_0.618"] = low + diff*fibRetracement618
 	return out
 }
 
