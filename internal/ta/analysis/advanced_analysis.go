@@ -7,9 +7,12 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"hissebot/internal/quant/core"
+	"hissebot/internal/ta/ohlcv"
 	"hissebot/internal/ta/professional"
+	"hissebot/internal/ta/value"
 )
 
 type AdvancedAnalysis struct {
@@ -211,10 +214,16 @@ type AdvancedFinancialQuality struct {
 	Computed                 bool                          `json:"computed"`
 	Status                   string                        `json:"status"`
 	Score                    float64                       `json:"score"`
+	PiotroskiScore           float64                       `json:"piotroski_score,omitempty"`
 	PiotroskiProxyScore      float64                       `json:"piotroski_proxy_score,omitempty"`
+	PiotroskiChecks          []AdvancedFinancialCheck      `json:"piotroski_checks,omitempty"`
+	BeneishMScoreProxy       float64                       `json:"beneish_m_score_proxy,omitempty"`
 	BeneishRiskProxy         string                        `json:"beneish_risk_proxy,omitempty"`
+	AltmanZScore             float64                       `json:"altman_z_score,omitempty"`
+	AltmanZStatus            string                        `json:"altman_z_status,omitempty"`
 	AltmanRiskProxy          string                        `json:"altman_risk_proxy,omitempty"`
 	DuPontROE                float64                       `json:"dupont_roe,omitempty"`
+	DuPont                   AdvancedDuPontBreakdown       `json:"dupont,omitempty"`
 	AccrualQualityProxyScore float64                       `json:"accrual_quality_proxy_score,omitempty"`
 	EarningsPersistenceScore float64                       `json:"earnings_persistence_score,omitempty"`
 	DebtSustainabilityScore  float64                       `json:"debt_sustainability_score,omitempty"`
@@ -222,6 +231,21 @@ type AdvancedFinancialQuality struct {
 	RedFlags                 []string                      `json:"red_flags,omitempty"`
 	MissingInputs            []string                      `json:"missing_inputs,omitempty"`
 	Warnings                 []string                      `json:"warnings,omitempty"`
+}
+
+type AdvancedFinancialCheck struct {
+	Name     string  `json:"name"`
+	Status   string  `json:"status"`
+	Score    float64 `json:"score,omitempty"`
+	Evidence string  `json:"evidence,omitempty"`
+}
+
+type AdvancedDuPontBreakdown struct {
+	Computed         bool    `json:"computed"`
+	ROEPct           float64 `json:"roe_pct,omitempty"`
+	NetMarginPct     float64 `json:"net_margin_pct,omitempty"`
+	AssetTurnover    float64 `json:"asset_turnover,omitempty"`
+	EquityMultiplier float64 `json:"equity_multiplier,omitempty"`
 }
 
 type AdvancedSectorQualityMetric struct {
@@ -270,7 +294,10 @@ type AdvancedEventStudy struct {
 	Score                  float64              `json:"score"`
 	EventCount             int                  `json:"event_count"`
 	TradableEventCount     int                  `json:"tradable_event_count"`
+	EventWindowSampleCount int                  `json:"event_window_sample_count,omitempty"`
 	AbnormalReturnProxyPct float64              `json:"abnormal_return_proxy_pct,omitempty"`
+	AvgEventReturn1DPct    float64              `json:"avg_event_return_1d_pct,omitempty"`
+	AvgEventReturn5DPct    float64              `json:"avg_event_return_5d_pct,omitempty"`
 	VolumeShiftProxyPct    float64              `json:"volume_shift_proxy_pct,omitempty"`
 	MaterialityScore       float64              `json:"materiality_score,omitempty"`
 	LatestEvents           []AdvancedEventScore `json:"latest_events,omitempty"`
@@ -281,8 +308,12 @@ type AdvancedEventStudy struct {
 type AdvancedEventScore struct {
 	Type             string  `json:"type,omitempty"`
 	Title            string  `json:"title,omitempty"`
+	EventDate        string  `json:"event_date,omitempty"`
 	Period           string  `json:"period,omitempty"`
 	MaterialityScore float64 `json:"materiality_score,omitempty"`
+	Return1DPct      float64 `json:"return_1d_pct,omitempty"`
+	Return5DPct      float64 `json:"return_5d_pct,omitempty"`
+	Abnormal5DPct    float64 `json:"abnormal_5d_pct,omitempty"`
 	ExpectedImpact   string  `json:"expected_impact,omitempty"`
 }
 
@@ -370,7 +401,7 @@ func BuildAdvancedAnalysis(result SymbolAnalysis) AdvancedAnalysis {
 	out.Macro = buildAdvancedMacroModel(result)
 	out.FinancialQuality = buildAdvancedFinancialQuality(result)
 	out.Valuation = buildAdvancedValuationEnsemble(result, tf.LastClose)
-	out.EventStudy = buildAdvancedEventStudy(result, returns)
+	out.EventStudy = buildAdvancedEventStudy(result, returns, tf.Candles)
 	out.ModelMonitoring = buildAdvancedModelMonitoring(result, tf)
 	out.LiquidityPortfolio = buildAdvancedLiquidityPortfolio(result, tf)
 	out.Production = buildAdvancedProductionReadiness(result, out)
@@ -698,16 +729,28 @@ func buildAdvancedMacroModel(result SymbolAnalysis) AdvancedMacroModel {
 func buildAdvancedFinancialQuality(result SymbolAnalysis) AdvancedFinancialQuality {
 	fq := result.StatEconomic.FinancialQuality
 	valuation := result.Professional.Valuation
+	piotroskiScore, piotroskiChecks := piotroskiAnalysis(result)
+	beneishScore, beneishRisk := beneishMScoreProxy(result)
+	altmanZ, altmanStatus := altmanZScore(valuation)
+	dupont := advancedDuPont(result)
+	debtScore := roundStat(debtSustainabilityScore(valuation))
+	computed := fq.Score > 0 || financialCheckAvailable(piotroskiChecks) > 0 || dupont.Computed || altmanStatus != "missing_inputs"
 	out := AdvancedFinancialQuality{
-		Computed:                 fq.Score > 0,
+		Computed:                 computed,
 		Score:                    fq.Score,
+		PiotroskiScore:           roundStat(piotroskiScore),
 		PiotroskiProxyScore:      roundStat(piotroskiProxy(result)),
-		BeneishRiskProxy:         fq.ManipulationRiskProxy,
+		PiotroskiChecks:          piotroskiChecks,
+		BeneishMScoreProxy:       roundStat(beneishScore),
+		BeneishRiskProxy:         advancedFirstNonEmpty(beneishRisk, fq.ManipulationRiskProxy),
+		AltmanZScore:             roundStat(altmanZ),
+		AltmanZStatus:            altmanStatus,
 		AltmanRiskProxy:          altmanRiskProxy(valuation),
-		DuPontROE:                roundStat(ratioValue(valuation.Ratios, "ROE") * 100),
+		DuPontROE:                dupont.ROEPct,
+		DuPont:                   dupont,
 		AccrualQualityProxyScore: fq.AccrualQualityProxyScore,
 		EarningsPersistenceScore: fq.EarningsPersistenceScore,
-		DebtSustainabilityScore:  roundStat(debtSustainabilityScore(valuation)),
+		DebtSustainabilityScore:  debtScore,
 		RedFlags:                 append([]string{}, fq.RedFlags...),
 		Warnings:                 append([]string{}, fq.Warnings...),
 	}
@@ -728,10 +771,25 @@ func buildAdvancedFinancialQuality(result SymbolAnalysis) AdvancedFinancialQuali
 	if valuation.OperatingCashTTM == 0 && valuation.FreeCashFlowTTM == 0 {
 		out.MissingInputs = append(out.MissingInputs, "cash_flow_ttm")
 	}
+	if len(result.Professional.ValueInvesting.Years) < 2 {
+		out.MissingInputs = append(out.MissingInputs, "two_year_financial_history")
+	}
+	switch beneishRisk {
+	case "m_score_high_risk":
+		out.RedFlags = append(out.RedFlags, "beneish_m_score_high_risk")
+	case "m_score_watch":
+		out.Warnings = append(out.Warnings, "beneish_m_score_watch")
+	}
+	if strings.Contains(altmanStatus, "distress") {
+		out.RedFlags = append(out.RedFlags, "altman_z_distress")
+	} else if strings.Contains(altmanStatus, "grey") {
+		out.Warnings = append(out.Warnings, "altman_z_grey_zone")
+	}
 	out.Score = roundStat(core.Clamp(weightedStatScore([]statScoreWeight{
-		{fq.Score, 0.45},
-		{out.PiotroskiProxyScore, 0.18},
+		{fq.Score, 0.34},
+		{out.PiotroskiScore, 0.22},
 		{out.DebtSustainabilityScore, 0.16},
+		{altmanScoreFromStatus(altmanStatus), 0.07},
 		{out.AccrualQualityProxyScore, 0.11},
 		{out.EarningsPersistenceScore, 0.10},
 	})-missingPenalty(out.MissingInputs), 0, 100))
@@ -748,35 +806,61 @@ func buildAdvancedFinancialQuality(result SymbolAnalysis) AdvancedFinancialQuali
 func buildAdvancedValuationEnsemble(result SymbolAnalysis, lastClose float64) AdvancedValuationEnsemble {
 	val := result.Professional.Valuation
 	bridge := result.Professional.InvestmentResearch.ValuationBridge
+	valueReport := result.Professional.ValueInvesting
 	current := firstPositive(lastClose, bridge.CurrentPrice, result.Quant.Return.LastClose)
 	out := AdvancedValuationEnsemble{
-		Computed:         result.Professional.ValueInvesting.Computed || val.FairValue.Base > 0 || bridge.BaseIntrinsicValue > 0,
+		Computed:         valueReport.Computed || val.FairValue.Base > 0 || bridge.BaseIntrinsicValue > 0,
 		CurrentPrice:     roundStat(current),
-		BearFairValue:    roundStat(firstPositive(val.FairValue.Bear, bridge.BearIntrinsicValue)),
-		BaseFairValue:    roundStat(firstPositive(val.FairValue.Base, bridge.BaseIntrinsicValue)),
-		BullFairValue:    roundStat(firstPositive(val.FairValue.Bull, bridge.BullIntrinsicValue)),
-		ModelReliability: roundStat(firstPositive(result.Professional.ValueInvesting.Confidence, val.FairValue.Confidence)),
+		BearFairValue:    roundStat(firstPositive(valueReport.IntrinsicValue.Bear, val.FairValue.Bear, bridge.BearIntrinsicValue)),
+		BaseFairValue:    roundStat(firstPositive(valueReport.IntrinsicValue.Base, val.FairValue.Base, bridge.BaseIntrinsicValue)),
+		BullFairValue:    roundStat(firstPositive(valueReport.IntrinsicValue.Bull, val.FairValue.Bull, bridge.BullIntrinsicValue)),
+		ModelReliability: roundStat(firstPositive(valueReport.Confidence, valueReport.IntrinsicValue.Confidence, val.FairValue.Confidence)),
 		MissingInputs:    append([]string{}, bridge.MissingInputs...),
-		Warnings:         append([]string{}, result.Professional.ValueInvesting.Warnings...),
-	}
-	if current > 0 && out.BaseFairValue > 0 {
-		out.ExpectedUpsidePct = roundStat((out.BaseFairValue/current - 1) * 100)
-		out.MarginOfSafetyPct = roundStat((out.BaseFairValue - current) / out.BaseFairValue * 100)
+		Warnings:         append([]string{}, valueReport.Warnings...),
 	}
 	if val.DCF.Computed {
-		out.Models = append(out.Models, AdvancedValuationModel{Name: "dcf", Status: "computed", FairValue: roundStat(val.DCF.FairValuePerShare), Weight: 0.30, Confidence: out.ModelReliability, Evidence: val.DCF.AssumptionSource})
+		out.Models = append(out.Models, AdvancedValuationModel{Name: "dcf", Status: "computed", FairValue: roundStat(val.DCF.FairValuePerShare), Weight: 0.24, Confidence: firstPositive(val.FairValue.Confidence, valueReport.Confidence, 60), Evidence: val.DCF.AssumptionSource})
 		for _, s := range val.DCF.Sensitivity {
 			out.Sensitivity = append(out.Sensitivity, AdvancedValuationSensitivity{Name: s.Name, Variable: "wacc_terminal_growth", Change: fmt.Sprintf("wacc=%.2f terminal=%.2f", s.WACC, s.TerminalGrowth), FairValue: roundStat(s.FairValuePerShare)})
 		}
 	} else {
 		out.Models = append(out.Models, AdvancedValuationModel{Name: "dcf", Status: "missing", Evidence: "free_cash_flow_and_assumptions_required"})
 	}
+	if valueReport.IntrinsicValue.Computed {
+		out.Models = append(out.Models, AdvancedValuationModel{Name: "owner_earnings_intrinsic", Status: "computed", FairValue: roundStat(valueReport.IntrinsicValue.Base), Weight: 0.22, Confidence: firstPositive(valueReport.IntrinsicValue.Confidence, valueReport.Confidence, 60), Evidence: strings.Join(valueReport.IntrinsicValue.Drivers, "; ")})
+	} else {
+		out.Models = append(out.Models, AdvancedValuationModel{Name: "owner_earnings_intrinsic", Status: "missing", Evidence: "owner_earnings_or_normalized_fcf_required"})
+	}
+	dividendFairValue := dividendDiscountFairValue(result)
+	out.Models = append(out.Models, AdvancedValuationModel{Name: "dividend_discount", Status: computedStatus(dividendFairValue > 0), FairValue: roundStat(dividendFairValue), Weight: 0.08, Confidence: dividendModelConfidence(valueReport), Evidence: "latest dividends + required return"})
 	out.Models = append(out.Models,
-		AdvancedValuationModel{Name: "fair_value_range", Status: computedStatus(out.BaseFairValue > 0), FairValue: out.BaseFairValue, Weight: 0.25, Confidence: val.FairValue.Confidence, Evidence: strings.Join(val.FairValue.Drivers, "; ")},
-		AdvancedValuationModel{Name: "peer_multiples", Status: computedStatus(result.Professional.Peers.PeerCount >= 3), FairValue: out.BaseFairValue, Weight: 0.18, Confidence: peerConfidence(result.Professional.Peers.PeerCount), Evidence: result.Professional.Peers.ValuationSignal},
-		AdvancedValuationModel{Name: "nav_or_sum_of_parts", Status: bridge.NAVStatus, FairValue: roundStat(bridge.NAVBridge.EstimatedNAVPerShare), Weight: 0.15, Confidence: navConfidence(bridge.NAVStatus), Evidence: bridge.NAVBridge.Status},
-		AdvancedValuationModel{Name: "residual_income_proxy", Status: computedStatus(val.Equity > 0 && val.NetIncomeTTM != 0), FairValue: roundStat(residualIncomeProxy(val)), Weight: 0.12, Confidence: out.ModelReliability * 0.75, Evidence: "equity + roe proxy"},
+		AdvancedValuationModel{Name: "fair_value_range", Status: computedStatus(firstPositive(val.FairValue.Base, bridge.BaseIntrinsicValue) > 0), FairValue: roundStat(firstPositive(val.FairValue.Base, bridge.BaseIntrinsicValue)), Weight: 0.18, Confidence: firstPositive(val.FairValue.Confidence, out.ModelReliability), Evidence: strings.Join(val.FairValue.Drivers, "; ")},
+		AdvancedValuationModel{Name: "peer_multiples", Status: computedStatus(result.Professional.Peers.PeerCount >= 3 && firstPositive(val.FairValue.Base, bridge.BaseIntrinsicValue) > 0), FairValue: roundStat(firstPositive(val.FairValue.Base, bridge.BaseIntrinsicValue)), Weight: 0.12, Confidence: peerConfidence(result.Professional.Peers.PeerCount), Evidence: result.Professional.Peers.ValuationSignal},
+		AdvancedValuationModel{Name: "nav_or_sum_of_parts", Status: bridge.NAVStatus, FairValue: roundStat(bridge.NAVBridge.EstimatedNAVPerShare), Weight: 0.10, Confidence: navConfidence(bridge.NAVStatus), Evidence: bridge.NAVBridge.Status},
+		AdvancedValuationModel{Name: "residual_income", Status: computedStatus(val.Equity > 0 && val.NetIncomeTTM != 0), FairValue: roundStat(residualIncomeProxy(val)), Weight: 0.06, Confidence: out.ModelReliability * 0.75, Evidence: "equity + roe + required return"},
 	)
+	if base, reliability, activeWeight := weightedValuationFairValue(out.Models); base > 0 {
+		out.BaseFairValue = roundStat(base)
+		if reliability > 0 {
+			out.ModelReliability = roundStat(reliability)
+		}
+		if activeWeight < 0.45 {
+			out.Warnings = append(out.Warnings, "valuation_ensemble_low_active_model_weight")
+		}
+	}
+	if out.BearFairValue <= 0 || out.BullFairValue <= 0 {
+		out.BearFairValue, out.BullFairValue = valuationModelRange(out.Models, out.BaseFairValue)
+	}
+	if current > 0 && out.BaseFairValue > 0 {
+		out.ExpectedUpsidePct = roundStat((out.BaseFairValue/current - 1) * 100)
+		out.MarginOfSafetyPct = roundStat((out.BaseFairValue - current) / out.BaseFairValue * 100)
+	}
+	if len(out.Sensitivity) == 0 && out.BaseFairValue > 0 {
+		out.Sensitivity = append(out.Sensitivity,
+			AdvancedValuationSensitivity{Name: "bear_model_uncertainty", Variable: "fair_value", Change: "-10%", FairValue: roundStat(out.BaseFairValue * 0.90)},
+			AdvancedValuationSensitivity{Name: "bull_model_uncertainty", Variable: "fair_value", Change: "+10%", FairValue: roundStat(out.BaseFairValue * 1.10)},
+		)
+	}
 	if !out.Computed {
 		out.MissingInputs = append(out.MissingInputs, "valuation_model_inputs")
 	}
@@ -795,7 +879,7 @@ func buildAdvancedValuationEnsemble(result SymbolAnalysis, lastClose float64) Ad
 	return out
 }
 
-func buildAdvancedEventStudy(result SymbolAnalysis, returns []float64) AdvancedEventStudy {
+func buildAdvancedEventStudy(result SymbolAnalysis, returns []float64, candles []ohlcv.Candle) AdvancedEventStudy {
 	out := AdvancedEventStudy{Score: 45}
 	if result.Professional.RawKAPData == nil {
 		out.Status = "missing"
@@ -808,22 +892,72 @@ func buildAdvancedEventStudy(result SymbolAnalysis, returns []float64) AdvancedE
 	out.EventCount = len(raw.CorporateEvents) + len(raw.KAPEvents)
 	out.TradableEventCount = result.Professional.FundamentalBacktest.TradableEvents
 	out.MaterialityScore = roundStat(eventMaterialityScore(result))
-	out.AbnormalReturnProxyPct = roundStat(result.Professional.Market.StockReturn20*100 - result.Professional.Market.BenchmarkReturn20*100)
+	broadAbnormal := result.Professional.Market.StockReturn20*100 - result.Professional.Market.BenchmarkReturn20*100
+	out.AbnormalReturnProxyPct = roundStat(broadAbnormal)
 	out.VolumeShiftProxyPct = roundStat(volumeShiftProxy(result))
-	for _, event := range raw.CorporateEvents {
-		if len(out.LatestEvents) >= 10 {
-			break
+	expectedDailyReturn := core.Mean(returns)
+	sumR1, sumR5, sumAbnormal := 0.0, 0.0, 0.0
+	addWindow := func(score *AdvancedEventScore, dateText string) {
+		date, ok := parseAdvancedEventDate(dateText)
+		if !ok {
+			return
 		}
-		out.LatestEvents = append(out.LatestEvents, AdvancedEventScore{
+		score.EventDate = date.Format("2006-01-02")
+		r1, r5, abnormal, ok := eventWindowReturns(candles, date, expectedDailyReturn)
+		if !ok {
+			return
+		}
+		score.Return1DPct = roundStat(r1)
+		score.Return5DPct = roundStat(r5)
+		score.Abnormal5DPct = roundStat(abnormal)
+		sumR1 += r1
+		sumR5 += r5
+		sumAbnormal += abnormal
+		out.EventWindowSampleCount++
+	}
+	for _, event := range raw.CorporateEvents {
+		score := AdvancedEventScore{
 			Type:             event.EventType,
 			Title:            event.Title,
 			Period:           stringPtrValue(event.Period),
 			MaterialityScore: eventMaterialityFromText(event.EventType + " " + event.Title),
 			ExpectedImpact:   eventImpactFromText(event.EventType + " " + event.Title),
-		})
+		}
+		addWindow(&score, advancedCorporateEventDate(event.EffectiveDate, event.DocumentDate, event.Period, event.CreatedAt))
+		if len(out.LatestEvents) < 10 {
+			out.LatestEvents = append(out.LatestEvents, score)
+		}
+	}
+	for _, event := range raw.KAPEvents {
+		text := strings.TrimSpace(event.EventCategory + " " + event.Summary + " " + strings.Join(event.RiskFlags, " ") + " " + strings.Join(event.OpportunityFlags, " "))
+		score := AdvancedEventScore{
+			Type:             event.EventCategory,
+			Title:            event.Summary,
+			Period:           stringPtrValue(event.Period),
+			MaterialityScore: eventMaterialityFromText(text),
+			ExpectedImpact:   advancedFirstNonEmpty(event.Impact.ShortTermPrice, event.Impact.Fundamental, event.Impact.LongTerm, eventImpactFromText(text)),
+		}
+		addWindow(&score, advancedCorporateEventDate(nil, event.DocumentDate, event.Period, ""))
+		if len(out.LatestEvents) < 10 {
+			out.LatestEvents = append(out.LatestEvents, score)
+		}
+	}
+	if out.EventWindowSampleCount > 0 {
+		n := float64(out.EventWindowSampleCount)
+		out.AvgEventReturn1DPct = roundStat(sumR1 / n)
+		out.AvgEventReturn5DPct = roundStat(sumR5 / n)
+		out.AbnormalReturnProxyPct = roundStat(sumAbnormal / n)
 	}
 	score := 45.0 + core.Clamp(float64(out.EventCount), 0, 20) + core.Clamp(float64(out.TradableEventCount), 0, 20)
 	score += out.MaterialityScore * 0.15
+	if out.EventWindowSampleCount > 0 {
+		score += 8
+		if out.AbnormalReturnProxyPct < -8 {
+			score -= 8
+		} else if out.AbnormalReturnProxyPct > 8 {
+			score += 4
+		}
+	}
 	if result.Professional.FundamentalBacktest.BacktestSafe {
 		score += 10
 	}
@@ -833,6 +967,9 @@ func buildAdvancedEventStudy(result SymbolAnalysis, returns []float64) AdvancedE
 	}
 	if len(returns) < 60 {
 		out.Warnings = append(out.Warnings, "event_study_price_window_short")
+	}
+	if out.EventWindowSampleCount == 0 && out.EventCount > 0 {
+		out.Warnings = append(out.Warnings, "event_study_no_event_dates_matched_price_history")
 	}
 	out.Score = roundStat(core.Clamp(score, 0, 100))
 	out.Status = scoreStatus(out.Score)
@@ -855,7 +992,7 @@ func buildAdvancedModelMonitoring(result SymbolAnalysis, tf TimeframeAnalysis) A
 		OutOfSampleTrades:           bt.OutOfSampleTrades,
 		ModelRisk:                   result.StatEconomic.Validation.ModelRisk,
 		ChampionModel:               "technical_quant_stat_economic_ensemble_v1",
-		ChallengerModel:             "not_registered",
+		ChallengerModel:             advancedChallengerModel(result),
 		DriftStatus:                 driftStatus(result),
 		Warnings:                    append([]string{}, result.StatEconomic.Validation.Warnings...),
 	}
@@ -1141,6 +1278,211 @@ func macroStressReturn(sensitivity string, base float64) float64 {
 	}
 }
 
+func advancedFirstNonEmpty(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func sortedValueYears(values []value.YearMetric) []value.YearMetric {
+	out := append([]value.YearMetric{}, values...)
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Year < out[j].Year
+	})
+	return out
+}
+
+func piotroskiAnalysis(result SymbolAnalysis) (float64, []AdvancedFinancialCheck) {
+	years := sortedValueYears(result.Professional.ValueInvesting.Years)
+	checks := []AdvancedFinancialCheck{}
+	add := func(name string, available bool, pass bool, evidence string) {
+		status := "missing"
+		score := 0.0
+		if available {
+			if pass {
+				status = "pass"
+				score = 100
+			} else {
+				status = "fail"
+			}
+		}
+		checks = append(checks, AdvancedFinancialCheck{Name: name, Status: status, Score: score, Evidence: evidence})
+	}
+	if len(years) > 0 {
+		curr := years[len(years)-1]
+		var prev value.YearMetric
+		hasPrev := len(years) > 1
+		if hasPrev {
+			prev = years[len(years)-2]
+		}
+		currROA := safeDiv(curr.NetIncome, curr.TotalAssets)
+		prevROA := safeDiv(prev.NetIncome, prev.TotalAssets)
+		currLeverage := safeDiv(curr.Debt, curr.TotalAssets)
+		prevLeverage := safeDiv(prev.Debt, prev.TotalAssets)
+		currCashAssets := safeDiv(curr.Cash, curr.TotalAssets)
+		prevCashAssets := safeDiv(prev.Cash, prev.TotalAssets)
+		currGrossMargin := firstPositive(curr.GrossMargin, safeDiv(curr.GrossProfit, curr.Revenue))
+		prevGrossMargin := firstPositive(prev.GrossMargin, safeDiv(prev.GrossProfit, prev.Revenue))
+		currTurnover := safeDiv(curr.Revenue, curr.TotalAssets)
+		prevTurnover := safeDiv(prev.Revenue, prev.TotalAssets)
+		add("positive_net_income", curr.TotalAssets > 0 || curr.Revenue > 0 || curr.NetIncome != 0, curr.NetIncome > 0, fmt.Sprintf("year=%d net_income=%.2f", curr.Year, curr.NetIncome))
+		add("positive_operating_cash", curr.TotalAssets > 0 || curr.OperatingCash != 0, curr.OperatingCash > 0, fmt.Sprintf("year=%d operating_cash=%.2f", curr.Year, curr.OperatingCash))
+		add("cash_flow_above_net_income", curr.OperatingCash != 0 || curr.NetIncome != 0, curr.OperatingCash > curr.NetIncome, fmt.Sprintf("operating_cash=%.2f net_income=%.2f", curr.OperatingCash, curr.NetIncome))
+		add("roa_improving", hasPrev && curr.TotalAssets > 0 && prev.TotalAssets > 0, currROA > prevROA, fmt.Sprintf("current_roa=%.4f previous_roa=%.4f", currROA, prevROA))
+		add("leverage_down", hasPrev && curr.TotalAssets > 0 && prev.TotalAssets > 0, currLeverage <= prevLeverage, fmt.Sprintf("current_debt_assets=%.4f previous_debt_assets=%.4f", currLeverage, prevLeverage))
+		add("liquidity_proxy_improving", hasPrev && curr.TotalAssets > 0 && prev.TotalAssets > 0, currCashAssets >= prevCashAssets, fmt.Sprintf("current_cash_assets=%.4f previous_cash_assets=%.4f", currCashAssets, prevCashAssets))
+		add("no_dilution", hasPrev && curr.PaidCapital > 0 && prev.PaidCapital > 0, curr.PaidCapital <= prev.PaidCapital*1.01, fmt.Sprintf("current_paid_capital=%.2f previous_paid_capital=%.2f", curr.PaidCapital, prev.PaidCapital))
+		add("gross_margin_improving", hasPrev && currGrossMargin != 0 && prevGrossMargin != 0, currGrossMargin >= prevGrossMargin, fmt.Sprintf("current_gm=%.4f previous_gm=%.4f", currGrossMargin, prevGrossMargin))
+		add("asset_turnover_improving", hasPrev && currTurnover != 0 && prevTurnover != 0, currTurnover >= prevTurnover, fmt.Sprintf("current_turnover=%.4f previous_turnover=%.4f", currTurnover, prevTurnover))
+		return financialCheckScore(checks), checks
+	}
+	val := result.Professional.Valuation
+	add("positive_net_income", val.TotalAssets > 0 || val.SalesTTM > 0 || val.NetIncomeTTM != 0, val.NetIncomeTTM > 0, "ttm_proxy")
+	add("positive_operating_cash", val.TotalAssets > 0 || val.OperatingCashTTM != 0 || val.FreeCashFlowTTM != 0, val.OperatingCashTTM > 0 || val.FreeCashFlowTTM > 0, "ttm_proxy")
+	add("cash_flow_above_net_income", val.OperatingCashTTM != 0 || val.NetIncomeTTM != 0, val.OperatingCashTTM > val.NetIncomeTTM, "ttm_proxy")
+	add("positive_roe", val.Equity > 0 || val.NetIncomeTTM != 0, ratioValue(val.Ratios, "ROE", "roe") > 0, "ratio_proxy")
+	add("debt_sustainable", val.TotalAssets > 0 || val.Equity > 0, safeDiv(val.NetDebt, val.Equity) <= 1, "balance_sheet_proxy")
+	return financialCheckScore(checks), checks
+}
+
+func financialCheckScore(checks []AdvancedFinancialCheck) float64 {
+	total, available := 0.0, 0.0
+	for _, check := range checks {
+		if check.Status == "missing" {
+			continue
+		}
+		available++
+		total += check.Score
+	}
+	return safeDiv(total, available)
+}
+
+func financialCheckAvailable(checks []AdvancedFinancialCheck) int {
+	count := 0
+	for _, check := range checks {
+		if check.Status != "missing" {
+			count++
+		}
+	}
+	return count
+}
+
+func advancedDuPont(result SymbolAnalysis) AdvancedDuPontBreakdown {
+	val := result.Professional.Valuation
+	years := sortedValueYears(result.Professional.ValueInvesting.Years)
+	netMargin := safeDiv(val.NetIncomeTTM, val.SalesTTM)
+	assetTurnover := safeDiv(val.SalesTTM, val.TotalAssets)
+	equityMultiplier := safeDiv(val.TotalAssets, val.Equity)
+	if len(years) > 0 {
+		latest := years[len(years)-1]
+		if netMargin == 0 {
+			netMargin = firstPositive(latest.NetMargin, safeDiv(latest.NetIncome, latest.Revenue))
+		}
+		if assetTurnover == 0 {
+			assetTurnover = safeDiv(latest.Revenue, latest.TotalAssets)
+		}
+		if equityMultiplier == 0 {
+			equityMultiplier = safeDiv(latest.TotalAssets, latest.Equity)
+		}
+	}
+	roe := netMargin * assetTurnover * equityMultiplier
+	if roe == 0 {
+		roe = firstPositive(ratioValue(val.Ratios, "ROE", "roe"), latestROE(years))
+	}
+	return AdvancedDuPontBreakdown{
+		Computed:         roe != 0 || (netMargin != 0 && assetTurnover != 0 && equityMultiplier != 0),
+		ROEPct:           roundStat(roe * 100),
+		NetMarginPct:     roundStat(netMargin * 100),
+		AssetTurnover:    roundStat(assetTurnover),
+		EquityMultiplier: roundStat(equityMultiplier),
+	}
+}
+
+func latestROE(years []value.YearMetric) float64 {
+	if len(years) == 0 {
+		return 0
+	}
+	return years[len(years)-1].ROE
+}
+
+func beneishMScoreProxy(result SymbolAnalysis) (float64, string) {
+	years := sortedValueYears(result.Professional.ValueInvesting.Years)
+	if len(years) < 2 {
+		return 0, "requires_two_year_financial_history"
+	}
+	curr := years[len(years)-1]
+	prev := years[len(years)-2]
+	currGM := firstPositive(curr.GrossMargin, safeDiv(curr.GrossProfit, curr.Revenue))
+	prevGM := firstPositive(prev.GrossMargin, safeDiv(prev.GrossProfit, prev.Revenue))
+	if curr.Revenue <= 0 || prev.Revenue <= 0 || curr.TotalAssets <= 0 {
+		return 0, "requires_revenue_and_assets"
+	}
+	gmi := 1.0
+	if currGM > 0 && prevGM > 0 {
+		gmi = prevGM / currGM
+	}
+	sgi := curr.Revenue / prev.Revenue
+	lvgi := 1.0
+	currLeverage := safeDiv(curr.Debt, curr.TotalAssets)
+	prevLeverage := safeDiv(prev.Debt, prev.TotalAssets)
+	if currLeverage > 0 && prevLeverage > 0 {
+		lvgi = currLeverage / prevLeverage
+	}
+	tata := safeDiv(curr.NetIncome-curr.OperatingCash, curr.TotalAssets)
+	score := -4.84 + 0.92*1.0 + 0.528*gmi + 0.404*1.0 + 0.892*sgi + 0.115*1.0 - 0.172*1.0 + 4.679*tata - 0.327*lvgi
+	switch {
+	case score > -1.78:
+		return score, "m_score_high_risk"
+	case score > -2.22:
+		return score, "m_score_watch"
+	default:
+		return score, "m_score_low_risk"
+	}
+}
+
+func altmanZScore(val professional.ValuationAnalysis) (float64, string) {
+	if val.TotalAssets <= 0 {
+		return 0, "missing_inputs"
+	}
+	totalLiabilities := val.TotalAssets - val.Equity
+	if totalLiabilities <= 0 {
+		totalLiabilities = val.TotalDebt
+	}
+	if totalLiabilities <= 0 || val.SalesTTM <= 0 || val.MarketCap <= 0 {
+		return 0, "missing_inputs"
+	}
+	ebitAssets := safeDiv(val.EBITTTM, val.TotalAssets)
+	marketEquityLiabilities := safeDiv(val.MarketCap, totalLiabilities)
+	salesAssets := safeDiv(val.SalesTTM, val.TotalAssets)
+	z := 3.3*ebitAssets + 0.6*marketEquityLiabilities + salesAssets
+	switch {
+	case z >= 2.99:
+		return z, "partial_safe_zone"
+	case z >= 1.81:
+		return z, "partial_grey_zone"
+	default:
+		return z, "partial_distress_zone"
+	}
+}
+
+func altmanScoreFromStatus(status string) float64 {
+	status = strings.ToLower(status)
+	switch {
+	case strings.Contains(status, "safe"):
+		return 82
+	case strings.Contains(status, "grey"):
+		return 55
+	case strings.Contains(status, "distress"):
+		return 25
+	default:
+		return 0
+	}
+}
+
 func piotroskiProxy(result SymbolAnalysis) float64 {
 	val := result.Professional.Valuation
 	score := 0.0
@@ -1204,14 +1546,109 @@ func peerConfidence(peerCount int) float64 {
 }
 
 func navConfidence(status string) float64 {
+	text := strings.ToLower(status)
 	switch normalizeAdvancedStatus(status) {
 	case "pass":
 		return 75
 	case "limited":
 		return 45
 	default:
+		if strings.Contains(text, "partial") {
+			return 60
+		}
+		if strings.Contains(text, "book_value") || strings.Contains(text, "proxy") {
+			return 45
+		}
 		return 0
 	}
+}
+
+func valuationModelUsable(model AdvancedValuationModel) bool {
+	status := strings.ToLower(model.Status)
+	if model.FairValue <= 0 || model.Weight <= 0 || model.Confidence <= 0 {
+		return false
+	}
+	if strings.Contains(status, "missing") || strings.Contains(status, "fail") || strings.Contains(status, "not_applicable") {
+		return false
+	}
+	return true
+}
+
+func weightedValuationFairValue(models []AdvancedValuationModel) (float64, float64, float64) {
+	totalValue, totalWeight, confidenceWeight, activeRawWeight := 0.0, 0.0, 0.0, 0.0
+	for _, model := range models {
+		if !valuationModelUsable(model) {
+			continue
+		}
+		qualityWeight := model.Weight * core.Clamp(model.Confidence, 0, 100) / 100
+		totalValue += model.FairValue * qualityWeight
+		totalWeight += qualityWeight
+		confidenceWeight += model.Confidence * model.Weight
+		activeRawWeight += model.Weight
+	}
+	return safeDiv(totalValue, totalWeight), safeDiv(confidenceWeight, activeRawWeight), activeRawWeight
+}
+
+func valuationModelRange(models []AdvancedValuationModel, base float64) (float64, float64) {
+	minValue, maxValue := 0.0, 0.0
+	for _, model := range models {
+		if !valuationModelUsable(model) {
+			continue
+		}
+		if minValue == 0 || model.FairValue < minValue {
+			minValue = model.FairValue
+		}
+		if model.FairValue > maxValue {
+			maxValue = model.FairValue
+		}
+	}
+	if base <= 0 {
+		return roundStat(minValue), roundStat(maxValue)
+	}
+	if minValue <= 0 {
+		minValue = base * 0.80
+	}
+	if maxValue <= 0 {
+		maxValue = base * 1.20
+	}
+	if math.Abs(maxValue-minValue) < base*0.02 {
+		minValue = base * 0.85
+		maxValue = base * 1.15
+	}
+	return roundStat(minValue), roundStat(maxValue)
+}
+
+func dividendDiscountFairValue(result SymbolAnalysis) float64 {
+	years := sortedValueYears(result.Professional.ValueInvesting.Years)
+	if len(years) == 0 {
+		return 0
+	}
+	latest := years[len(years)-1]
+	paidCapital := firstPositive(latest.PaidCapital, result.Professional.Valuation.PaidCapital)
+	if paidCapital <= 0 || latest.DividendsPaid == 0 {
+		return 0
+	}
+	dividendPerShare := math.Abs(latest.DividendsPaid) / paidCapital
+	assumptions := result.Professional.ValueInvesting.Assumptions
+	discount := assumptions.DiscountRate
+	if discount <= 0 {
+		discount = firstPositive(result.Professional.Valuation.DCF.CostOfEquity, result.Professional.Valuation.DCF.WACC, 0.22)
+	}
+	growth := assumptions.TerminalGrowth
+	if growth <= 0 {
+		growth = math.Min(0.05, math.Max(0, result.Professional.Valuation.DCF.TerminalGrowth))
+	}
+	if discount <= growth+0.02 {
+		discount = growth + 0.12
+	}
+	return dividendPerShare * (1 + growth) / (discount - growth)
+}
+
+func dividendModelConfidence(report value.Report) float64 {
+	if !report.CapitalAllocation.DividendDataAvailable {
+		return 0
+	}
+	return core.Clamp(35+float64(report.CapitalAllocation.DividendYears)*4, 35, 75)
 }
 
 func debtSustainabilityScore(val professional.ValuationAnalysis) float64 {
@@ -1254,6 +1691,86 @@ func residualIncomeProxy(val professional.ValuationAnalysis) float64 {
 	requiredReturn := 0.22
 	residual := val.Equity + (roe-requiredReturn)*val.Equity/requiredReturn
 	return math.Max(0, residual/val.PaidCapital)
+}
+
+func advancedCorporateEventDate(effectiveDate, documentDate, period *string, createdAt string) string {
+	for _, value := range []string{stringPtrValue(effectiveDate), stringPtrValue(documentDate), stringPtrValue(period), createdAt} {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func parseAdvancedEventDate(text string) (time.Time, bool) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return time.Time{}, false
+	}
+	candidates := []string{text}
+	if len(text) >= 10 {
+		candidates = append(candidates, text[:10])
+	}
+	layouts := []string{
+		time.RFC3339,
+		"2006-01-02",
+		"2006/01/02",
+		"02.01.2006",
+		"2006.01.02",
+		"20060102",
+		"2006-01",
+		"2006/01",
+		"200601",
+	}
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		for _, layout := range layouts {
+			parsed, err := time.Parse(layout, candidate)
+			if err == nil {
+				return dateOnly(parsed), true
+			}
+		}
+	}
+	return time.Time{}, false
+}
+
+func dateOnly(t time.Time) time.Time {
+	if t.IsZero() {
+		return time.Time{}
+	}
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+func eventWindowReturns(candles []ohlcv.Candle, eventDate time.Time, expectedDailyReturn float64) (float64, float64, float64, bool) {
+	if len(candles) < 6 {
+		return 0, 0, 0, false
+	}
+	eventDay := dateOnly(eventDate)
+	index := -1
+	for i, candle := range candles {
+		close := candle.EffectiveClose()
+		if close <= 0 {
+			continue
+		}
+		if !dateOnly(candle.Time).Before(eventDay) {
+			index = i
+			break
+		}
+	}
+	if index < 0 || index+5 >= len(candles) {
+		return 0, 0, 0, false
+	}
+	close0 := candles[index].EffectiveClose()
+	close1 := candles[index+1].EffectiveClose()
+	close5 := candles[index+5].EffectiveClose()
+	if close0 <= 0 || close1 <= 0 || close5 <= 0 {
+		return 0, 0, 0, false
+	}
+	return1 := (close1/close0 - 1) * 100
+	return5 := (close5/close0 - 1) * 100
+	abnormal5 := return5 - expectedDailyReturn*5*100
+	return return1, return5, abnormal5, true
 }
 
 func eventMaterialityScore(result SymbolAnalysis) float64 {
@@ -1318,6 +1835,19 @@ func driftStatus(result SymbolAnalysis) string {
 		return "data_drift_watch"
 	}
 	return "stable"
+}
+
+func advancedChallengerModel(result SymbolAnalysis) string {
+	switch {
+	case result.BISTBulletin.ForecastActualAvailable:
+		return "bist_bulletin_official_actual_overlay"
+	case result.NextSessionForecast.BacktestMetrics.Samples > 0:
+		return "next_session_forecast_baseline"
+	case result.StatEconomic.Validation.Score > 0:
+		return "stat_economic_validation_baseline"
+	default:
+		return "not_available"
+	}
 }
 
 func recommendedMaxPositionTRY(result SymbolAnalysis, capacity float64) float64 {

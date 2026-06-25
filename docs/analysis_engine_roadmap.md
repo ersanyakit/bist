@@ -47,13 +47,27 @@ Yeni artifact dosyalari:
 
 Not: Bu entegrasyon veri yokken tahmin uydurmaz; eksik kaynaklari `missing_inputs`, `warnings`, `human_review_queue` ve gate status alanlariyla sinirlar. Daha ileri dogruluk icin lisansli order book, resmi point-in-time makro serileri ve normalize finansal tablo kapsami genisletildikce ayni kontratlar daha yuksek guvenle dolar.
 
+2026-06-25 ek sertlestirme:
+
+- `advanced_analysis.financial_quality` artik sadece proxy degil; normalize yillik finansallar varsa Piotroski kontrol listesi, Beneish M-Score yaklasimi, Altman Z-Score kismi modeli ve DuPont kirilimi uretir. Eski proxy alanlari geriye uyumluluk icin korunur.
+- `advanced_analysis.valuation_ensemble` DCF, owner-earnings intrinsic value, fair-value range, dividend discount, peer multiples, NAV/SOTP ve residual income modellerini agirlikli ensemble icinde birlestirir. Model guveni ve bear/base/bull araligi aktif model kapsamindan hesaplanir.
+- `advanced_analysis.event_study` KAP/corporate event tarihlerini gunluk fiyat serisine baglar; uygun pencere varsa 1 seans, 5 seans ve 5 seans abnormal return hesaplar. Rapor listesi 10 olayla sinirli kalir, ancak skor orneklemi tum eslesen olaylari kullanir.
+- `advanced_analysis.model_monitoring` champion/challenger alaninda artik sabit `not_registered` yazmaz; BIST resmi bulten overlay, next-session baseline veya stat/economic validation baseline bilgisini raporlar.
+
+Kalan sinirlar:
+
+- Beneish tam modeli icin DSRI, AQI, DEPI ve SGAI kalemleri henuz canonical finansal tablo satirlarindan tam uretilmiyor; mevcut hesap guvenli yaklasimdir ve eksik input varsa status bunu belirtir.
+- Altman Z-Score su an sanayi tipi kismi modeldir; banka, sigorta, finansal kiralama, GYO ve holding icin sektor uyarlamasi ayrica tamamlanmalidir.
+- Event-study gunluk barla calisir; publish time seans ici/sonrasi ayrimi icin dakikalik veri veya resmi bildirim saati gerekir.
+- Degerleme ensemble'i veri geldikce aktiflesir; Monte Carlo, tam peer target extraction ve full NAV mutabakati henuz veri kaynagina bagli kalan islerdir.
+
 ## Kalan Ana Eksikler
 
 Kalan eksikler dort gruba ayrilir:
 
 - Veri ve zaman guvenligi: point-in-time zincir, resmi fiyat mutabakati, corporate action audit, lisansli benchmark/mikroyapi verisi.
 - Ekonometrik model kalitesi: BIST faktorleri, makro duyarlilik katsayilari, rejim modelleri, model karsilastirma testleri.
-- Fundamental/fair value derinligi: sektor bazli finansal kalite, Piotroski/Beneish/Altman, DCF/RI/DDM/peer/NAV ensemble, KAP event study.
+- Fundamental/fair value derinligi: sektor bazli finansal kalite uyarlamalari, tam Beneish/Altman input kapsami, Monte Carlo/peer target/full NAV derinligi, intraday KAP event-study.
 - Operasyonel karar guvenligi: model monitoring, drift, calibration, portfoy optimizasyonu, market impact ve production checklist.
 
 ## Faz 0 - Stabilizasyon ve Kontrat Kilidi
@@ -212,18 +226,24 @@ Kabul kriterleri:
 
 Amaç: Finansal tablolarin sadece oranlarini degil, kalitesini ve manipülasyon riskini olcmek.
 
+Mevcut durum:
+
+- Piotroski benzeri 9 kontrol, normalize `value.YearMetric` gecmisi varsa yillik finansallardan hesaplanir; yoksa TTM proxy kontrolleri `missing`/`ttm_proxy` kanitiyla ayrilir.
+- Beneish M-Score yaklasimi iki yillik gelir, brut marj, kaldirac ve accrual girdileriyle uretilir; tam DSRI/AQI/DEPI/SGAI icin ek canonical kalemler gerekir.
+- Altman Z kismi modeli sanayi tipi bilanço girdileriyle calisir; banka/sigorta/GYO/holding uyarlamalari ayrica tamamlanacaktir.
+- DuPont ROE, net marj, aktif devir hizi ve ozkaynak carpani olarak rapora eklenir.
+
 Eksik algoritmalar:
 
-- Piotroski F-Score.
-- Beneish M-Score.
-- Altman Z-Score veya sektor uyarlamasi.
-- DuPont decomposition.
+- Tam Piotroski F-Score icin cari oran ve hisse adedi/sermaye hareketi kalite kontrolu.
+- Tam Beneish M-Score icin alacaklar, amortisman, SGA ve asset-quality canonical kalemleri.
+- Sektor uyarlamali Altman/finansal distress modelleri.
+- Banka/sigorta/GYO/holding ozel kalite scorecard'lari.
 - Accrual quality.
 - Earnings persistence.
 - Revenue quality ve margin stability.
 - Debt sustainability.
 - Cash conversion cycle.
-- Sector-specific scorecards: banka, sigorta, GYO, holding, sanayi.
 
 Veri ihtiyaci:
 
@@ -248,17 +268,19 @@ Kabul kriterleri:
 
 Amaç: Tek hedef fiyat yerine model ailesiyle adil deger araligi uretmek.
 
+Mevcut durum:
+
+- DCF, owner-earnings intrinsic value, fair-value range, dividend discount, peer multiples, NAV/SOTP ve residual income tek `valuation_ensemble` altinda agirlikli modele baglandi.
+- `model_reliability`, `expected_upside_pct`, `margin_of_safety_pct` ve sensitivity satirlari aktif model kapsamina gore dolar.
+- Model girdisi yoksa fair value uydurulmaz; ilgili model `missing_data` ve `missing_inputs` ile raporlanir.
+
 Eksik algoritmalar:
 
-- DCF scenario ensemble.
-- Residual income model.
-- Dividend discount model.
-- EV/EBITDA, P/E, P/BV, P/S peer model.
-- Sum-of-parts proxy.
-- NAV proxy / full NAV, ozellikle GYO icin.
+- Tam peer target extraction ve sektor carpan kalitesi.
+- Full NAV mutabakati, ozellikle GYO icin ekspertiz/toplam portfoy/debt reconciliation.
 - Monte Carlo valuation.
-- Sensitivity grid: WACC, growth, margin, FX, inflation, terminal growth.
-- Model reliability weighting.
+- Genis sensitivity grid: WACC, growth, margin, FX, inflation, terminal growth.
+- Residual income ve DDM icin sektor bazli required-return kalibrasyonu.
 
 Veri ihtiyaci:
 
@@ -283,16 +305,22 @@ Kabul kriterleri:
 
 Amaç: KAP/haber olaylarinin fiyat, hacim ve volatilite uzerindeki etkisini olcmek.
 
+Mevcut durum:
+
+- Corporate event ve KAP event tarihleri gunluk OHLCV ile eslestirilir.
+- Eslesen olaylarda 1 seans, 5 seans ve beklenen getiriye gore 5 seans abnormal return uretilir.
+- Materiality score ve expected impact metin/NLP sinyaliyle rapora eklenir; hacim kaymasi proxy olarak kalir.
+
 Eksik algoritmalar:
 
-- Event study abnormal return.
 - Earnings surprise model.
 - Dividend/capital increase impact model.
 - Contract/tender/order announcement impact classifier.
 - Buyback impact model.
 - Legal/regulatory risk event classifier.
-- Pre/post volume and volatility shift.
-- NLP sentiment and materiality score.
+- Pre/post volume and volatility shift icin olay penceresi bazli tam hesap.
+- Intraday publish-time alignment ve market open/close ayrimi.
+- NLP sentiment ve materiality modeli icin supervised/validated etiket seti.
 
 Veri ihtiyaci:
 
@@ -315,6 +343,11 @@ Kabul kriterleri:
 ## Faz 8 - Tahmin Validasyonu ve Model Monitoring
 
 Amaç: Modelin dogru oldugunu varsaymak yerine surekli olcmek.
+
+Mevcut durum:
+
+- Forecast backtest sample, direction hit-rate, close MAPE, walk-forward/out-of-sample trade sayisi ve drift status raporlanir.
+- Champion model sabit audit ismiyle, challenger model ise BIST resmi bulten overlay / next-session baseline / stat-economic baseline olarak deterministik secilir.
 
 Eksik algoritmalar:
 
