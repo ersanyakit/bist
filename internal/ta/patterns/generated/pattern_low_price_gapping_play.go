@@ -6,7 +6,7 @@ func init() {
 		Name:       "Low Price Gapping Play",
 		Category:   "candlestick",
 		Group:      "coklu_mum_formasyonlari",
-		Direction:  "neutral",
+		Direction:  "bearish",
 		Template:   "candlestick",
 		Confidence: 0.66,
 		Evidence:   "candlestick geometry matched the named setup",

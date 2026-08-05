@@ -176,6 +176,45 @@ func TestIndicatorScannerMarksExactFormulaInsufficientData(t *testing.T) {
 	}
 }
 
+// TestIndicatorScannerUsesProxyValueInsteadOfRequiresExternalData guards the fix for a
+// dead-code bug found in the 2026-08-05 audit: computeProxyValue (and its template
+// dispatch) existed but was never wired into valueForIndicator, so any indicator name
+// not in knownIndicatorValues's alias table — even one whose template has a real
+// OHLCV-derived approximation — was mislabeled "requires_external_data" instead of the
+// honest "proxy_only" (computed but not an exact formula, Computed stays false either
+// way so this never becomes a scored signal).
+func TestIndicatorScannerUsesProxyValueInsteadOfRequiresExternalData(t *testing.T) {
+	candles := indicatorTestCandles(80)
+	snapshot, err := Snapshot(candles)
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	result, err := detectIndicatorSpec(ScannerInput{
+		Timeframe: "1D",
+		Candles:   candles,
+		Snapshot:  snapshot,
+		LastClose: candles[len(candles)-1].Close,
+	}, indicatorSpec{
+		Name:       "Totally Unregistered Trend Gadget",
+		Category:   "trend",
+		Group:      "trend_indikatorleri",
+		Template:   "trend",
+		Confidence: 0.6,
+	})
+	if err != nil {
+		t.Fatalf("detect indicator: %v", err)
+	}
+	if result.Signal != "proxy_only" {
+		t.Fatalf("Signal = %q, want proxy_only (should not fall back to requires_external_data for a template with a proxy)", result.Signal)
+	}
+	if result.Computed {
+		t.Fatal("proxy_only results must not be marked Computed (they are not an exact-formula signal)")
+	}
+	if result.Value == 0 {
+		t.Fatal("expected a nonzero proxy value (trendStrength on non-flat synthetic candles)")
+	}
+}
+
 func TestADXSignalIsTrendStrengthNotDirection(t *testing.T) {
 	candles := indicatorTestCandles(240)
 	snapshot, err := Snapshot(candles)

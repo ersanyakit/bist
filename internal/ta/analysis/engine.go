@@ -174,6 +174,11 @@ type NextSessionForecast struct {
 	DirectionTolerancePct           float64                     `json:"direction_tolerance_pct,omitempty"`
 	ExpectedLow                     float64                     `json:"expected_low"`
 	ExpectedHigh                    float64                     `json:"expected_high"`
+	DecisionIntervalLow             float64                     `json:"decision_interval_low,omitempty"`
+	DecisionIntervalHigh            float64                     `json:"decision_interval_high,omitempty"`
+	DecisionIntervalWidthPct        float64                     `json:"decision_interval_width_pct,omitempty"`
+	DecisionIntervalStatus          string                      `json:"decision_interval_status,omitempty"`
+	DecisionIntervalReason          string                      `json:"decision_interval_reason,omitempty"`
 	OpenP10                         float64                     `json:"open_p10,omitempty"`
 	OpenP50                         float64                     `json:"open_p50,omitempty"`
 	OpenP90                         float64                     `json:"open_p90,omitempty"`
@@ -1228,10 +1233,13 @@ func validateTimeframeCandleContinuity(candles []ohlcv.Candle, timeframe string)
 	if len(candles) < 3 {
 		return nil
 	}
-	maxGap := maxAllowedCandleGap(timeframe)
-	if maxGap <= 0 {
-		return nil
-	}
+	// Every indicator/pattern/formation computation indexes candles by position
+	// (candles[len(candles)-1] as "current bar", rolling lookback windows, etc.) and
+	// trusts that index order matches chronological order. That must hold for every
+	// timeframe, not just the ones with a configured gap tolerance below — a missing or
+	// unusually large gap is timeframe-specific and may be legitimate (holidays,
+	// illiquid names), but non-increasing or duplicate timestamps are never legitimate
+	// and would silently corrupt every downstream calculation.
 	previous := candles[0].Time
 	for i := 1; i < len(candles); i++ {
 		current := candles[i].Time
@@ -1241,8 +1249,16 @@ func validateTimeframeCandleContinuity(candles []ohlcv.Candle, timeframe string)
 		if !current.After(previous) {
 			return fmt.Errorf("%s candles are not strictly increasing at %s then %s", timeframe, previous.Format("2006-01-02"), current.Format("2006-01-02"))
 		}
-		gap := current.Sub(previous)
-		if gap > maxGap {
+		previous = current
+	}
+	maxGap := maxAllowedCandleGap(timeframe)
+	if maxGap <= 0 {
+		return nil
+	}
+	previous = candles[0].Time
+	for i := 1; i < len(candles); i++ {
+		current := candles[i].Time
+		if gap := current.Sub(previous); gap > maxGap {
 			return fmt.Errorf("%s candle temporal gap %s exceeds %s between %s and %s", timeframe, gap, maxGap, previous.Format("2006-01-02"), current.Format("2006-01-02"))
 		}
 		previous = current
@@ -1668,6 +1684,13 @@ func ComputeNextSessionForecastFromCandlesContext(ctx context.Context, candles [
 	if len(candles) == 0 {
 		return NextSessionForecast{}, fmt.Errorf("next-session forecast requires candles: %w", indicators.ErrInsufficientData)
 	}
+	// Unlike analyzeTimeframe, this entry point does not go through
+	// filterCandlesThroughAsOf/normalizeTimeframeWindow, so it needs its own ordering
+	// check — every downstream indicator/pattern/formation call below trusts that
+	// index order matches chronological order.
+	if err := validateTimeframeCandleContinuity(candles, "1D"); err != nil {
+		return NextSessionForecast{}, fmt.Errorf("next-session forecast candle continuity: %w", err)
+	}
 	snapshot, err := indicators.Snapshot(candles)
 	if err != nil {
 		return NextSessionForecast{}, fmt.Errorf("calculate indicators for next-session forecast: %w", err)
@@ -1887,6 +1910,7 @@ func ApplyBISTBulletinBacktestToNextSessionForecast(f NextSessionForecast, recor
 			f.ConfidenceLabel = nextSessionConfidenceLabel(f.Confidence)
 		}
 		f = calibrateWeakValidatedNextSessionForecast(f, metrics, assetType, "")
+		f = calibrateNextSessionDecisionInterval(f, metrics, assetType, "")
 	}
 	return syncNextSessionDecisionForecast(f, f.DecisionForecast.Ticker)
 }
@@ -1977,6 +2001,57 @@ func calibrateWeakValidatedNextSessionForecast(f NextSessionForecast, metrics ne
 	))
 	f.Warnings = appendUniqueAnalysisString(f.Warnings, "weak_validation_point_forecast_damped_interval_widened")
 	return applyTradablePriceStepToNextSessionForecast(f, assetType, symbol)
+}
+
+func calibrateNextSessionDecisionInterval(f NextSessionForecast, metrics nextSessionForecastBacktestMetrics, assetType, symbol string) NextSessionForecast {
+	if !f.Computed || f.LastClose <= 0 || f.PredictedClose <= 0 || metrics.samples < nextSessionPointForecastMinBacktestSamples {
+		return f
+	}
+	errorsPct := make([]float64, 0, len(metrics.rows))
+	for _, row := range metrics.rows {
+		if row.ClosePctError <= 0 || math.IsNaN(row.ClosePctError) || math.IsInf(row.ClosePctError, 0) {
+			continue
+		}
+		errorsPct = append(errorsPct, row.ClosePctError)
+	}
+	if len(errorsPct) < nextSessionPointForecastMinBacktestSamples {
+		return f
+	}
+	sort.Float64s(errorsPct)
+	validationOK := metrics.closeMAEPct <= nextSessionDecisionMaxCloseMAPEPct &&
+		metrics.directionHitRatePct >= nextSessionDecisionMinDirectionAccuracyPct
+	quantile := 0.75
+	status := "active"
+	if !validationOK {
+		quantile = 0.80
+		status = "candidate_validation_failed"
+	}
+	halfPct := mathutil.Clamp(percentileSorted(errorsPct, quantile)/100, 0.008, 0.055)
+	low := f.PredictedClose * (1 - halfPct)
+	high := f.PredictedClose * (1 + halfPct)
+	if low <= 0 || high <= low {
+		return f
+	}
+	low = roundForecastPrice(low)
+	high = roundForecastPrice(high)
+	if nextSessionForecastUsesBISTPriceStep(assetType, symbol) {
+		low = roundForecastPriceToTick(low, bistEquityTickSize(low))
+		high = roundForecastPriceToTick(high, bistEquityTickSize(high))
+		if low > high {
+			low, high = high, low
+		}
+	}
+	f.DecisionIntervalLow = low
+	f.DecisionIntervalHigh = high
+	f.DecisionIntervalWidthPct = roundForecastMetric(100 * (high - low) / f.LastClose)
+	f.DecisionIntervalStatus = status
+	f.DecisionIntervalReason = fmt.Sprintf("conformal_q%.0f_close_error_pct:%.2f", quantile*100, halfPct*100)
+	f.Model = withForecastModelOverlay(f.Model, "decision_interval_conformal_v1")
+	f.Warnings = appendUniqueAnalysisString(f.Warnings, "decision_interval_conformal_calibrated")
+	if !validationOK {
+		f.Warnings = appendUniqueAnalysisString(f.Warnings, "decision_interval_candidate_validation_failed")
+	}
+	return f
 }
 
 type bistBulletinAnalogPrediction struct {
@@ -5115,6 +5190,7 @@ func attachNextSessionForecastValidation(f NextSessionForecast, candles []ohlcv.
 		if f.ValidationStatus == forecastActualNotObserved {
 			f.ValidationStatus = forecastRollingBacktestOnly
 		}
+		f = calibrateNextSessionDecisionInterval(f, metrics, assetType, "")
 	}
 	f = syncNextSessionDecisionForecast(f, "")
 	return f

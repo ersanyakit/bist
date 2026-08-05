@@ -350,7 +350,35 @@ func directionForTemplate(template string) string {
 	}
 }
 
+// candlestickDirectionOverrides pins the direction of specific named candlestick
+// patterns whose classic definition is unambiguous but whose name either isn't caught
+// by the substring heuristics below, or is a substring composed with another word that
+// breaks a heuristic match (e.g. "evening doji star" does not contain "evening star").
+// Checked before the heuristics so it always wins for these exact names.
+var candlestickDirectionOverrides = map[string]string{
+	"three inside down":       "bearish",
+	"three outside down":      "bearish",
+	"concealing baby swallow": "bullish",
+	"thrusting line":          "bearish",
+	"matching high":           "bearish",
+	"in neck line":            "bearish",
+	"on neck line":            "bearish",
+	"evening doji star":       "bearish",
+	"morning doji star":       "bullish",
+	"upside tasuki gap":       "bullish",
+	"downside tasuki gap":     "bearish",
+	"high price gapping play": "bullish",
+	"low price gapping play":  "bearish",
+	"breaking high signal":    "bullish",
+	"breaking low signal":     "bearish",
+	"rising mat hold":         "bullish",
+	"falling mat hold":        "bearish",
+}
+
 func directionForCandlestick(name string) string {
+	if direction, ok := candlestickDirectionOverrides[name]; ok {
+		return direction
+	}
 	switch {
 	case strings.Contains(name, "bearish"):
 		return "bearish"

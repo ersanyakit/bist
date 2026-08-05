@@ -90,6 +90,260 @@ func TestIchimokuKumoTwistDetectsCloudDirectionChange(t *testing.T) {
 	}
 }
 
+func TestRelativeVigorIndexSmoothsNumeratorAndDenominatorSeparately(t *testing.T) {
+	// Constant candle body (close-open = 5) every bar, and a constant high-low range of
+	// 10 except for one abnormally narrow bar (range = 0.01) at index 4. Correct RVI
+	// smooths the weighted numerator and denominator series independently over the
+	// window and divides once; averaging the per-bar ratios first (the previous, buggy
+	// implementation) lets that single narrow-range bar dominate the result.
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	ranges := []float64{10, 10, 10, 10, 0.01, 10}
+	candles := make([]ohlcv.Candle, len(ranges))
+	for i, r := range ranges {
+		mid := 100.0
+		candles[i] = ohlcv.Candle{
+			Time:   start.AddDate(0, 0, i),
+			Open:   mid - 2.5,
+			Close:  mid + 2.5, // close - open = 5 for every bar
+			High:   mid + r/2,
+			Low:    mid - r/2, // high - low = r
+			Volume: 1000,
+		}
+	}
+
+	const period = 2
+	// Hand-computed weighted numerator/denominator (4-bar weighted average
+	// (x[i]+2x[i-1]+2x[i-2]+x[i-3])/6) for i=4 and i=5, the two bars covered by the last
+	// period=2 SMA window.
+	val4, ran4 := 5.0, (0.01+2*10+2*10+10)/6.0 // = 8.335
+	val5, ran5 := 5.0, (10+2*0.01+2*10+10)/6.0 // = 6.67
+	wantCorrect := ((val4 + val5) / 2) / ((ran4 + ran5) / 2)
+	wantBuggy := (val4/ran4 + val5/ran5) / 2
+
+	got := RelativeVigorIndex(candles, period)
+	assertClose(t, "RelativeVigorIndex (ratio of smoothed series)", got, wantCorrect, 1e-9)
+	if math.Abs(got-wantBuggy) < 0.005 {
+		t.Fatalf("RelativeVigorIndex regressed to averaging per-bar ratios: got %.6f, buggy formula gives %.6f", got, wantBuggy)
+	}
+}
+
+func TestDEMATEMATRIXCascadeContinuesEMARecursion(t *testing.T) {
+	// DEMA/TEMA/TRIX cascade an EMA over an already-EMA'd series (EMA-of-EMA[-of-EMA]).
+	// The second/third stage must continue the exponential recursion from the prior
+	// stage's own values (emaContinueSeries), not re-seed a fresh SMA warm-up on
+	// already-smoothed data. A single large spike right at the first-stage EMA's own
+	// warm-up boundary (index period-1) maximizes the gap between "continue the
+	// recursion" and "re-seed from here" at exactly the point where they'd otherwise
+	// diverge, so it survives to the last bar instead of decaying away like it would for
+	// smooth/monotonic input.
+	values := make([]float64, 11)
+	values[5] = 1000
+	const period = 6
+
+	ema1 := EMASeries(values, period)
+	ema2 := emaContinueSeries(ema1, period)
+	ema3 := emaContinueSeries(ema2, period)
+
+	wantDEMA := 2*ema1[len(ema1)-1] - ema2[len(ema2)-1]
+	assertClose(t, "DEMA (continuous cascade)", DEMA(values, period), wantDEMA, 1e-9)
+
+	wantTEMA := 3*ema1[len(ema1)-1] - 3*ema2[len(ema2)-1] + ema3[len(ema3)-1]
+	assertClose(t, "TEMA (continuous cascade)", TEMA(values, period), wantTEMA, 1e-9)
+
+	wantTRIX := 100 * mathutil.SafeDiv(ema3[len(ema3)-1]-ema3[len(ema3)-2], absDenominator(ema3[len(ema3)-2]))
+	assertClose(t, "TRIX (continuous cascade)", TRIX(values, period), wantTRIX, 1e-9)
+
+	// Regression guard: the previous implementation truncated ema1[period-1:] and
+	// re-seeded a fresh SMA warm-up at every stage instead of continuing the recursion.
+	buggyEma2 := EMASeries(ema1[period-1:], period)
+	buggyDEMA := 2*ema1[len(ema1)-1] - buggyEma2[len(buggyEma2)-1]
+	if math.Abs(DEMA(values, period)-buggyDEMA) < 0.5 {
+		t.Fatalf("DEMA regressed to the re-seeded cascade: got %.6f, buggy formula gives %.6f", DEMA(values, period), buggyDEMA)
+	}
+}
+
+func TestKnowSureThingUsesCanonicalSmoothingPeriods(t *testing.T) {
+	// Pring's canonical KST smooths its four ROC(10/15/20/30) series with SMA periods
+	// 10/10/10/15 — not 10/13/15/20. Replicate the exact production ROC-series formula
+	// (rocSeries + absDenominator) here so this test only exercises the smoothing-period
+	// choice, independent of the ROC formula itself.
+	values := make([]float64, 70)
+	for i := range values {
+		values[i] = 100 + float64(i)*0.5 + 5*math.Sin(float64(i)/3)
+	}
+
+	rocSeries := func(v []float64, period int) []float64 {
+		out := make([]float64, 0, len(v)-period)
+		for i := period; i < len(v); i++ {
+			old := v[i-period]
+			out = append(out, 100*mathutil.SafeDiv(v[i]-old, math.Max(math.Abs(old), mathutil.Epsilon)))
+		}
+		return out
+	}
+	want := SMA(rocSeries(values, 10), 10) + 2*SMA(rocSeries(values, 15), 10) + 3*SMA(rocSeries(values, 20), 10) + 4*SMA(rocSeries(values, 30), 15)
+	got := KnowSureThing(values)
+	assertClose(t, "KnowSureThing (canonical 10/10/10/15 smoothing)", got, want, 1e-9)
+
+	buggy := SMA(rocSeries(values, 10), 10) + 2*SMA(rocSeries(values, 15), 13) + 3*SMA(rocSeries(values, 20), 15) + 4*SMA(rocSeries(values, 30), 20)
+	if math.Abs(got-buggy) < 0.5 {
+		t.Fatalf("KnowSureThing regressed toward the non-canonical 10/13/15/20 smoothing: got %.6f, buggy formula gives %.6f", got, buggy)
+	}
+}
+
+func TestStochasticMomentumIndexSmoothsComponentsSeparately(t *testing.T) {
+	// period=1 makes each bar's own high/low its entire "window", so denominator
+	// (high-low) varies bar-to-bar exactly as authored below — a rolling period>1
+	// window would let neighboring wide-range bars mask the narrow one via a rolling
+	// max/min. Every candle is centered on 100 (High = 100+r/2, Low = 100-r/2), so the
+	// window midpoint is always exactly 100 and diff = close - mid = 1 on every bar,
+	// isolating the denominator as the only varying term.
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	ranges := []float64{10, 10, 10, 10, 0.01, 10, 10, 10}
+	candles := make([]ohlcv.Candle, len(ranges))
+	for i, r := range ranges {
+		mid := 100.0
+		candles[i] = ohlcv.Candle{
+			Time:   start.AddDate(0, 0, i),
+			Open:   mid,
+			Close:  mid + 1,
+			High:   mid + r/2,
+			Low:    mid - r/2,
+			Volume: 1000,
+		}
+	}
+
+	const period, smooth = 1, 2
+	diff := make([]float64, len(candles))
+	rng := make([]float64, len(candles))
+	for i := range candles {
+		diff[i] = 1
+		rng[i] = ranges[i]
+	}
+	avgDiff := emaContinueSeries(EMASeries(diff, smooth), smooth)
+	avgRange := emaContinueSeries(EMASeries(rng, smooth), smooth)
+	want := 100 * avgDiff[len(avgDiff)-1] / (avgRange[len(avgRange)-1] / 2)
+
+	smi, _ := StochasticMomentumIndex(candles, period, smooth)
+	assertClose(t, "StochasticMomentumIndex (component-wise double smoothing)", smi, want, 1e-9)
+
+	// Old (buggy) formula: divide close-vs-midpoint by half-range on every bar first,
+	// then single-EMA-smooth the resulting ratio series — the near-zero range at index 4
+	// produces a large spike (200/0.01 = 20000) that a component-wise smoothing would
+	// never expose directly to the averaging step.
+	buggyValues := make([]float64, len(candles))
+	for i := range candles {
+		denom := ranges[i] / 2
+		buggyValues[i] = 100 * diff[i] / denom
+	}
+	buggy := EMA(buggyValues, smooth)
+	if math.Abs(smi-buggy) < 50 {
+		t.Fatalf("StochasticMomentumIndex regressed to smoothing the pre-divided ratio: got %.6f, buggy formula gives %.6f", smi, buggy)
+	}
+}
+
+func TestFibonacciLevelsAnchorsToMoreRecentSwing(t *testing.T) {
+	// The window's high (200) occurs early (index 5); its low (100) occurs much later
+	// (index 50) — i.e. a down-swing, with the low as the more recent extreme. A correct
+	// implementation must measure retracement levels as a bounce up from that low
+	// (lowest + diff*ratio), not a pullback down from the (stale) high.
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	candles := make([]ohlcv.Candle, 60)
+	for i := range candles {
+		high, low := 150.0, 140.0
+		switch i {
+		case 5:
+			high, low = 200, 195
+		case 50:
+			high, low = 105, 100
+		}
+		candles[i] = ohlcv.Candle{
+			Time:   start.AddDate(0, 0, i),
+			Open:   (high + low) / 2,
+			Close:  (high + low) / 2,
+			High:   high,
+			Low:    low,
+			Volume: 1000,
+		}
+	}
+
+	levels := FibonacciLevels(candles)
+	want := 100 + 100*fibRetracement236 // lowest(100) + diff(100)*0.236, anchored to the more recent low
+	assertClose(t, "FibonacciLevels 0.236 (anchored to more recent low)", levels["0.236"], want, 1e-9)
+
+	buggy := 200 - 100*fibRetracement236 // old behavior: always anchored to the window high
+	if math.Abs(levels["0.236"]-buggy) < 1 {
+		t.Fatalf("FibonacciLevels regressed to always anchoring on the window high: got %.6f, buggy formula gives %.6f", levels["0.236"], buggy)
+	}
+}
+
+func TestDonchianExcludesCurrentBar(t *testing.T) {
+	// 25 bars: a flat 90-100 range for the first 24, then a bar that spikes to a new
+	// high (150) and is also the "current" (last) bar. The classic Donchian channel is
+	// built from the N bars *prior to* today, so today's own spike must not inflate the
+	// channel it's being compared against — otherwise a breakout can never be detected
+	// on the very bar that creates it.
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	candles := make([]ohlcv.Candle, 25)
+	for i := range candles {
+		high, low, close := 100.0, 90.0, 95.0
+		if i == len(candles)-1 {
+			high, low, close = 150, 95, 140
+		}
+		candles[i] = ohlcv.Candle{
+			Time:   start.AddDate(0, 0, i),
+			Open:   close,
+			Close:  close,
+			High:   high,
+			Low:    low,
+			Volume: 1000,
+		}
+	}
+
+	upper, lower := Donchian(candles, 20)
+	if upper != 100 {
+		t.Fatalf("Donchian upper = %.2f, want 100 (today's spike to 150 must be excluded from the comparison channel)", upper)
+	}
+	if lower != 90 {
+		t.Fatalf("Donchian lower = %.2f, want 90", lower)
+	}
+	if lastClose := candles[len(candles)-1].EffectiveClose(); lastClose <= upper {
+		t.Fatalf("lastClose (%.2f) should exceed the correctly-excluded channel upper (%.2f) to register a breakout", lastClose, upper)
+	}
+}
+
+func TestIchimokuSenkouUsesForwardDisplacement(t *testing.T) {
+	// Sideways regime (~50) for 80 bars, then a rally to ~150 for the last 20 bars.
+	// The cloud actually "plotted" at the last bar on a standard Ichimoku chart was
+	// computed from data as of kijunPeriod (26) bars before it — i.e. still deep in the
+	// sideways regime — not from today's rally-elevated tenkan/kijun. A correct
+	// implementation must keep Senkou A/B anchored near ~50, not jump toward ~150.
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	candles := make([]ohlcv.Candle, 100)
+	for i := range candles {
+		price := 50.0
+		if i >= 80 {
+			price = 150.0
+		}
+		candles[i] = ohlcv.Candle{
+			Time:   start.AddDate(0, 0, i),
+			Open:   price,
+			High:   price + 2,
+			Low:    price - 2,
+			Close:  price,
+			Volume: 1000,
+		}
+	}
+
+	_, _, senkouA, senkouB, _, _, _, _, breakout := Ichimoku(candles, 9, 26, 52)
+
+	if senkouA != 50 || senkouB != 50 {
+		t.Fatalf("displaced Senkou A/B should stay anchored to the pre-rally sideways regime (50), got A=%.4f B=%.4f", senkouA, senkouB)
+	}
+	if breakout != 1 {
+		t.Fatalf("price should register a bullish breakout above the correctly-displaced (still-low) cloud, got breakout=%.2f", breakout)
+	}
+}
+
 func TestMarketStructureBreakOfStructureUsesPriorWindow(t *testing.T) {
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	candles := make([]ohlcv.Candle, 25)
@@ -304,9 +558,19 @@ func directionalTrendCandles(count int) []ohlcv.Candle {
 	return candles
 }
 
+// kumoTwistCandles builds a series whose *raw* (undisplaced) Senkou trend flips from
+// bearish to bullish at flipIndex once a big up-spike enters the senkou windows. Senkou
+// Span A/B are plotted kijunPeriod bars forward of the data that produces them (see
+// displacedIchimokuCloud), so kijunPeriod trailing filler bars are appended after
+// flipIndex purely to give the series enough length to reach the as-of bars where that
+// flip becomes visible in the displaced cloud; their own OHLC values are irrelevant to
+// the assertions since the source window for those as-of bars never reaches past
+// flipIndex.
 func kumoTwistCandles() []ohlcv.Candle {
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	candles := make([]ohlcv.Candle, 60)
+	const flipIndex = 59
+	const kijunPeriod = 26
+	candles := make([]ohlcv.Candle, flipIndex+1+kijunPeriod)
 	for i := range candles {
 		low := 90.0
 		high := 100.0
@@ -321,7 +585,7 @@ func kumoTwistCandles() []ohlcv.Candle {
 			high = 200
 			closePrice = 100
 		}
-		if i == len(candles)-1 {
+		if i == flipIndex {
 			low = 290
 			high = 300
 			closePrice = 295

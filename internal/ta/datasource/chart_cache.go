@@ -156,10 +156,9 @@ func validateChartCacheContinuity(candles []ohlcv.Candle, timeframe string) erro
 	if len(candles) < 2 {
 		return nil
 	}
-	maxGap := chartCacheMaxAllowedGap(timeframe)
-	if maxGap <= 0 {
-		return nil
-	}
+	// Ordering/duplicate-timestamp checks must run for every timeframe, independent of
+	// whether a gap tolerance is configured below — see the matching comment on
+	// validateTimeframeCandleContinuity in internal/ta/analysis/engine.go.
 	previous := candles[0].Time
 	for i := 1; i < len(candles); i++ {
 		current := candles[i].Time
@@ -169,6 +168,15 @@ func validateChartCacheContinuity(candles []ohlcv.Candle, timeframe string) erro
 		if !current.After(previous) {
 			return fmt.Errorf("%s candles are not strictly increasing at %s then %s", timeframe, previous.Format("2006-01-02"), current.Format("2006-01-02"))
 		}
+		previous = current
+	}
+	maxGap := chartCacheMaxAllowedGap(timeframe)
+	if maxGap <= 0 {
+		return nil
+	}
+	previous = candles[0].Time
+	for i := 1; i < len(candles); i++ {
+		current := candles[i].Time
 		if gap := current.Sub(previous); gap > maxGap {
 			return fmt.Errorf("%s candle temporal gap %s exceeds %s between %s and %s", timeframe, gap, maxGap, previous.Format("2006-01-02"), current.Format("2006-01-02"))
 		}

@@ -195,6 +195,14 @@ func valueForIndicator(input ScannerInput, spec indicatorSpec) indicatorValue {
 	if value, ok := known[name]; ok {
 		return value
 	}
+	// No exact snapshot/derived value resolves this name, but its template has a
+	// reasonable OHLCV-derived approximation (see computeProxyValue) — surface that
+	// instead of silently mislabeling a computable indicator as needing external data.
+	// detectIndicatorSpec reports proxy-sourced values as Signal:"proxy_only" with
+	// Computed:false, so this never turns into a scored trading signal.
+	if len(input.Candles) > 0 {
+		return computeProxyValue(input, spec)
+	}
 	return indicatorValue{}
 }
 
@@ -2598,25 +2606,25 @@ func stopProxy(name string, input ScannerInput) float64 {
 	return input.LastClose - ATR(input.Candles, 14)*2
 }
 
+// divergenceProxy reuses the real swing-based divergence detector (DetectDivergences)
+// rather than comparing two arbitrary fixed-offset points, which produces false
+// divergence signals on noisy data (a genuine local extremum isn't required, so any two
+// points 20 bars apart moving in opposite directions from price/RSI would "count").
 func divergenceProxy(input ScannerInput) float64 {
-	c := input.Candles
-	if len(c) < 30 {
+	if len(input.Candles) < 30 {
 		return 0
 	}
-	cls := closes(c)
-	priceMove := cls[len(cls)-1] - cls[len(cls)-20]
-	rsiSeries := RSISeries(cls, 14)
-	if len(rsiSeries) < 20 {
-		return 0
-	}
-	rsiMove := rsiSeries[len(rsiSeries)-1] - rsiSeries[len(rsiSeries)-20]
-	if priceMove < 0 && rsiMove > 0 {
+	divs := DetectDivergences(input.Candles)
+	bullish := divs.RSI.Bullish || divs.MACD.Bullish
+	bearish := divs.RSI.Bearish || divs.MACD.Bearish
+	switch {
+	case bullish && !bearish:
 		return 1
-	}
-	if priceMove > 0 && rsiMove < 0 {
+	case bearish && !bullish:
 		return -1
+	default:
+		return 0
 	}
-	return 0
 }
 
 func chartTransformProxy(name string, c []ohlcv.Candle) float64 {

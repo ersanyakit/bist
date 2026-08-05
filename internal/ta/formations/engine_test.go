@@ -28,6 +28,231 @@ func TestDetectSwingsUsesConfiguredLookback(t *testing.T) {
 	}
 }
 
+// TestBestWedgeTrendlinePairEvaluatesLinesAtSharedIndex constructs a resistance and a
+// support trendline that each start at a different bar. Compared at their own,
+// unrelated start bars (the previous, buggy behavior: upper.Start.Price -
+// lower.Start.Price = 200 - 180 = +20, which would have been wrongly accepted as a
+// valid 20-unit-wide wedge), the pair looks fine. But resistance actually declines
+// under support by the time support's own line begins (evaluated at a shared index:
+// resistance is 160 there, support is 180 — support above resistance, a geometrically
+// invalid pair). The fix must evaluate both lines at a common bar and reject this pair.
+func TestBestWedgeTrendlinePairEvaluatesLinesAtSharedIndex(t *testing.T) {
+	candles := make([]ohlcv.Candle, 150)
+	for i := range candles {
+		candles[i] = testCandle(i, 100, 105, 95, 100)
+	}
+
+	upper := trendLineCandidate{
+		line: TrendlineResult{
+			Type:       "resistance_trendline",
+			Slope:      -0.5,
+			TouchCount: 3,
+			Strength:   0.5,
+			Start:      TimePrice{Price: 200},
+			End:        TimePrice{Price: 130},
+		},
+		startIdx:   0,
+		endIdx:     120,
+		startPrice: 200,
+		endPrice:   130,
+	}
+	lower := trendLineCandidate{
+		line: TrendlineResult{
+			Type:       "support_trendline",
+			Slope:      0.05,
+			TouchCount: 3,
+			Strength:   0.5,
+			Start:      TimePrice{Price: 180},
+			End:        TimePrice{Price: 125},
+		},
+		startIdx:   80,
+		endIdx:     120,
+		startPrice: 180,
+		endPrice:   125,
+	}
+
+	if _, _, ok := bestWedgeTrendlinePair(candles, []trendLineCandidate{upper, lower}); ok {
+		t.Fatal("bestWedgeTrendlinePair() accepted a pair where support is above resistance at their shared comparison bar")
+	}
+}
+
+// TestDetectTriangleTargetsUseAlignedHeight mirrors the wedge case for the triangle
+// measured-move target: detectTriangle used to overwrite the (correctly aligned) height
+// from patternFromLines with math.Abs(upper.Start.Price - lower.Start.Price), taken at
+// each line's own unrelated start bar. Here the two candidates start 80 bars apart, so
+// that raw subtraction (200 - 90 = 110) would produce a wildly inflated target vs. the
+// aligned width at the shared start bar (160 - 90 = 70).
+func TestDetectTriangleTargetsUseAlignedHeight(t *testing.T) {
+	candles := make([]ohlcv.Candle, 150)
+	for i := range candles {
+		candles[i] = testCandle(i, 100, 105, 95, 100)
+	}
+
+	upper := trendLineCandidate{
+		line: TrendlineResult{
+			Type:       "resistance_trendline",
+			Slope:      -0.5,
+			TouchCount: 4,
+			Strength:   0.6,
+			Start:      TimePrice{Price: 200},
+			End:        TimePrice{Price: 130},
+		},
+		startIdx:   0,
+		endIdx:     120,
+		startPrice: 200,
+		endPrice:   130,
+	}
+	lower := trendLineCandidate{
+		line: TrendlineResult{
+			Type:       "support_trendline",
+			Slope:      0,
+			TouchCount: 4,
+			Strength:   0.6,
+			Start:      TimePrice{Price: 90},
+			End:        TimePrice{Price: 100},
+		},
+		startIdx:   80,
+		endIdx:     120,
+		startPrice: 90,
+		endPrice:   100,
+	}
+
+	result, ok := detectTriangle(candles, nil, nil, []trendLineCandidate{upper, lower}, 2)
+	if !ok {
+		t.Fatal("detectTriangle() did not accept a valid descending-triangle pair")
+	}
+	// Aligned width at the shared start bar (idx 80): upper = 200 + (-0.5)*80 = 160,
+	// lower = 90 (its own start). height = 160 - 90 = 70.
+	wantTarget := round2(130 + 70.0)
+	if len(result.Targets) != 2 || result.Targets[1] != wantTarget {
+		t.Fatalf("Targets = %v, want second target %.2f (aligned height 70, not the unaligned Start.Price gap of 110)", result.Targets, wantTarget)
+	}
+}
+
+// TestClusterLevelsBoundsClusterWidthToSeedTolerance guards against unbounded
+// transitive drift: membership must be tested against each cluster's original seed
+// price, not its continuously-updated running mean. With atr=10 (levelTolerance
+// dominated by the atr*0.65=6.5 term, independent of price) and points stepped by 3
+// (100,103,106,109,112,115,118,121), comparing to a drifting mean chains all 8 points
+// spanning a run of higher lows into 2 clusters each spanning 9 (well past the 6.5
+// tolerance) — comparing to the fixed seed instead correctly splits them into 3
+// clusters, each spanning at most 6.
+func TestClusterLevelsBoundsClusterWidthToSeedTolerance(t *testing.T) {
+	points := make([]SwingPoint, 8)
+	for i := range points {
+		points[i] = SwingPoint{Index: i, Price: 100 + float64(i)*3, Kind: "low"}
+	}
+
+	levels := clusterLevels(nil, points, "horizontal_support", 10)
+
+	if len(levels) != 3 {
+		t.Fatalf("clusterLevels() produced %d levels, want 3 (got %+v) — unbounded drift would collapse this into 2", len(levels), levels)
+	}
+	total := 0
+	for _, level := range levels {
+		if level.TouchCount > 3 {
+			t.Fatalf("level %+v has TouchCount %d, want <=3 — a cluster spanning more than the tolerance chained together via drift", level, level.TouchCount)
+		}
+		total += level.TouchCount
+	}
+	if total != len(points) {
+		t.Fatalf("levels account for %d touches, want %d (all points)", total, len(points))
+	}
+}
+
+// TestTrendlineTouchStatsDoesNotDoubleCountVolumeConfirmedTouches guards against
+// volume-confirmed touches inflating the reported touch count itself (it should only
+// inflate the separate weighted score used for strength).
+func TestTrendlineTouchStatsDoesNotDoubleCountVolumeConfirmedTouches(t *testing.T) {
+	// Flat support line at price 100. Bars 2 and 4 touch the line (low=100); bar 2 does
+	// so on unusually high volume (5000, > 1.5x the ~2200 average across all 5 bars).
+	candles := []ohlcv.Candle{
+		testCandle(0, 105, 106, 104, 105),
+		testCandle(1, 105, 106, 104, 105),
+		testCandle(2, 105, 106, 100, 105),
+		testCandle(3, 105, 106, 104, 105),
+		testCandle(4, 105, 106, 100, 105),
+	}
+	candles[2].Volume = 5000 // volume-confirmed touch
+
+	touches, weightedTouches, _ := trendlineTouchStats(candles, 0, 100, 0, "support_trendline", 0)
+
+	if touches != 2 {
+		t.Fatalf("touches = %d, want 2 (bars 2 and 4 touch the low=100 line; touch count must not double-count the volume-confirmed one)", touches)
+	}
+	if weightedTouches != 3 {
+		t.Fatalf("weightedTouches = %.1f, want 3 (2 plain touches + 1 extra for the volume-confirmed touch)", weightedTouches)
+	}
+}
+
+// TestBuildLevelsTruncatesAfterReclassificationNotBefore guards against MaxLevels being
+// applied to the same-kind (swing-high) source list before
+// normalizeHorizontalLevelsByPrice buckets each cluster as support/resistance relative
+// to current price. Four swing-high points (60, 70, 200, 210) with current price 65:
+// after reclassification, 60 becomes support and {70, 200, 210} all remain resistance
+// (3 valid candidates) — with MaxLevels=2, the final resistances list should be filled
+// to 2 from those 3. Truncating the swing-high list to 2 *before* reclassification (the
+// previous behavior) would keep only the two lowest-priced points {60, 70} in that
+// intermediate list, permanently discarding 200 and 210, and leave only 1 real
+// resistance ({70}) once 60 gets reclassified into support.
+func TestBuildLevelsTruncatesAfterReclassificationNotBefore(t *testing.T) {
+	candles := make([]ohlcv.Candle, 60)
+	for i := range candles {
+		candles[i] = testCandle(i, 65, 66, 64, 65)
+	}
+	swings := []SwingPoint{
+		{Index: 10, Price: 60, Kind: "high"},
+		{Index: 20, Price: 70, Kind: "high"},
+		{Index: 30, Price: 200, Kind: "high"},
+		{Index: 40, Price: 210, Kind: "high"},
+	}
+	opts := Options{LevelLookback: 60, MaxLevels: 2}
+
+	_, resistances := buildLevels(candles, swings, 0, opts)
+
+	if len(resistances) != 2 {
+		t.Fatalf("resistances = %+v (len %d), want 2 — truncation before reclassification would drop valid resistance candidates", resistances, len(resistances))
+	}
+}
+
+// TestDetectSwingsBreaksTiesByFirstOccurrence guards against a flat-top plateau (two
+// adjacent bars with an identical high, common on coarse tick sizes) disqualifying
+// every bar in it: each bar in the tie used to see the other as ">=", so neither
+// qualified as a swing high and the real local top was silently dropped. The fix picks
+// the first (earlier) occurrence as the pivot.
+func TestDetectSwingsBreaksTiesByFirstOccurrence(t *testing.T) {
+	candles := []ohlcv.Candle{
+		testCandle(0, 10, 10, 8, 9),
+		testCandle(1, 10, 10, 8, 9),
+		testCandle(2, 15, 20, 8, 15), // plateau start
+		testCandle(3, 15, 20, 8, 15), // ties index 2's high
+		testCandle(4, 10, 10, 8, 9),
+		testCandle(5, 10, 10, 8, 9),
+		testCandle(6, 10, 10, 8, 9),
+	}
+
+	swings := DetectSwings(candles, 2)
+
+	foundAt2, foundAt3 := false, false
+	for _, s := range swings {
+		if s.Kind != "high" {
+			continue
+		}
+		if s.Index == 2 {
+			foundAt2 = true
+		}
+		if s.Index == 3 {
+			foundAt3 = true
+		}
+	}
+	if !foundAt2 {
+		t.Fatalf("expected a swing high at the first occurrence of the tied plateau (index 2), got %+v", swings)
+	}
+	if foundAt3 {
+		t.Fatalf("did not expect a swing high at the second (tied) occurrence (index 3), got %+v", swings)
+	}
+}
+
 func TestAnalyzeDetectsHorizontalChannelAndFakeBreakdown(t *testing.T) {
 	candles := horizontalChannelCandles()
 	result, err := Analyze(candles, Options{Symbol: "TEST", Timeframe: "1D", PivotLookback: 2, LevelLookback: 80})

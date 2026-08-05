@@ -136,6 +136,25 @@ func EMA(values []float64, period int) float64 {
 	return series[len(series)-1]
 }
 
+// emaContinueSeries continues an EMA recursion over an already-smoothed series without
+// re-seeding via a fresh SMA warm-up. Used for cascaded EMA-of-EMA calculations
+// (DEMA/TEMA/TRIX, SMI double-smoothing): the input here is itself already an EMA
+// output, and restarting a partial-SMA warm-up on it at every cascade stage does not
+// match any standard reference (TA-Lib/pandas/TradingView all seed once at the first
+// touch of raw data and continue the same recursion through every subsequent stage).
+func emaContinueSeries(values []float64, period int) []float64 {
+	if len(values) == 0 || period <= 0 {
+		return nil
+	}
+	out := make([]float64, len(values))
+	out[0] = values[0]
+	alpha := 2.0 / float64(period+1)
+	for i := 1; i < len(values); i++ {
+		out[i] = values[i]*alpha + out[i-1]*(1-alpha)
+	}
+	return out
+}
+
 func EMASeries(values []float64, period int) []float64 {
 	if len(values) == 0 || period <= 0 {
 		return nil
@@ -700,18 +719,11 @@ func Donchian(candles []ohlcv.Candle, period int) (float64, float64) {
 	if len(candles) == 0 || period <= 0 {
 		return 0, 0
 	}
-	start := len(candles) - period
-	if start < 0 {
-		start = 0
-	}
-	window := candles[start:]
-	upper := window[0].EffectiveHigh()
-	lower := window[0].EffectiveLow()
-	for _, candle := range window[1:] {
-		upper = math.Max(upper, candle.EffectiveHigh())
-		lower = math.Min(lower, candle.EffectiveLow())
-	}
-	return upper, lower
+	// The classic Donchian channel (Turtle Trading breakout system) uses the highest
+	// high / lowest low of the N bars *prior to* the current one. Including today's own
+	// high/low would make a same-bar breakout comparison self-referential — today's high
+	// can never exceed a channel that today's own high just contributed to.
+	return priorWindowHigh(candles, period), priorWindowLow(candles, period)
 }
 
 func Keltner(candles []ohlcv.Candle, emaPeriod, atrPeriod int, multiplier float64) (float64, float64, float64) {
@@ -757,11 +769,16 @@ func Ichimoku(candles []ohlcv.Candle, tenkanPeriod, kijunPeriod, senkouBPeriod i
 	}
 	tenkanHigh, tenkanLow := highLowWindow(candles, tenkanPeriod)
 	kijunHigh, kijunLow := highLowWindow(candles, kijunPeriod)
-	senkouHigh, senkouLow := highLowWindow(candles, senkouBPeriod)
 	tenkan := (tenkanHigh + tenkanLow) / 2
 	kijun := (kijunHigh + kijunLow) / 2
-	senkouA := (tenkan + kijun) / 2
-	senkouB := (senkouHigh + senkouLow) / 2
+
+	// Senkou Span A/B are plotted kijunPeriod bars forward of the data that produced
+	// them, so the cloud currently acting as support/resistance at the last bar is the
+	// one computed from data as of kijunPeriod bars ago — not from today's tenkan/kijun.
+	// Comparing today's close against a freshly-computed (undisplaced) cloud effectively
+	// compares it to a cloud that would only be plotted kijunPeriod bars in the future.
+	senkouA, senkouB := displacedIchimokuCloud(candles, tenkanPeriod, kijunPeriod, senkouBPeriod, len(candles)-1)
+
 	lastClose := 0.0
 	if len(candles) > 0 {
 		lastClose = candles[len(candles)-1].EffectiveClose()
@@ -777,30 +794,43 @@ func Ichimoku(candles []ohlcv.Candle, tenkanPeriod, kijunPeriod, senkouBPeriod i
 	cloudTrend := sign(senkouA - senkouB)
 	kumoTwist := 0.0
 	if len(candles) > 1 {
-		prevCloudTrend := ichimokuCloudTrend(candles[:len(candles)-1], tenkanPeriod, kijunPeriod, senkouBPeriod)
+		prevSenkouA, prevSenkouB := displacedIchimokuCloud(candles, tenkanPeriod, kijunPeriod, senkouBPeriod, len(candles)-2)
+		prevCloudTrend := sign(prevSenkouA - prevSenkouB)
 		if prevCloudTrend != 0 && cloudTrend != 0 && prevCloudTrend != cloudTrend {
 			kumoTwist = cloudTrend
 		}
 	}
 	tkCross := sign(tenkan - kijun)
 	breakout := 0.0
-	if lastClose > cloudTop {
-		breakout = 1
-	} else if lastClose < cloudBottom {
-		breakout = -1
+	if senkouA != 0 || senkouB != 0 {
+		if lastClose > cloudTop {
+			breakout = 1
+		} else if lastClose < cloudBottom {
+			breakout = -1
+		}
 	}
 	return tenkan, kijun, senkouA, senkouB, chikou, cloudTrend, kumoTwist, tkCross, breakout
 }
 
-func ichimokuCloudTrend(candles []ohlcv.Candle, tenkanPeriod, kijunPeriod, senkouBPeriod int) float64 {
-	tenkanHigh, tenkanLow := highLowWindow(candles, tenkanPeriod)
-	kijunHigh, kijunLow := highLowWindow(candles, kijunPeriod)
-	senkouHigh, senkouLow := highLowWindow(candles, senkouBPeriod)
+// displacedIchimokuCloud returns the Senkou Span A/B values that would be plotted at
+// asOfIdx on a standard Ichimoku chart: the tenkan/kijun/senkou-B highs and lows as of
+// kijunPeriod bars before asOfIdx, since Senkou spans are drawn kijunPeriod bars ahead
+// of the data that produced them. Returns (0, 0) when there isn't enough history to
+// reach that source bar.
+func displacedIchimokuCloud(candles []ohlcv.Candle, tenkanPeriod, kijunPeriod, senkouBPeriod, asOfIdx int) (float64, float64) {
+	sourceIdx := asOfIdx - kijunPeriod
+	if sourceIdx < 0 {
+		return 0, 0
+	}
+	source := candles[:sourceIdx+1]
+	tenkanHigh, tenkanLow := highLowWindow(source, tenkanPeriod)
+	kijunHigh, kijunLow := highLowWindow(source, kijunPeriod)
+	senkouHigh, senkouLow := highLowWindow(source, senkouBPeriod)
 	tenkan := (tenkanHigh + tenkanLow) / 2
 	kijun := (kijunHigh + kijunLow) / 2
 	senkouA := (tenkan + kijun) / 2
 	senkouB := (senkouHigh + senkouLow) / 2
-	return sign(senkouA - senkouB)
+	return senkouA, senkouB
 }
 
 func PivotPoints(candles []ohlcv.Candle) (float64, float64, float64, float64, float64) {
@@ -831,10 +861,35 @@ func FibonacciLevels(candles []ohlcv.Candle) map[string]float64 {
 	if len(candles) == 0 {
 		return levels
 	}
-	highest, lowest := highLowWindow(candles, minInt(120, len(candles)))
+	start := len(candles) - minInt(120, len(candles))
+	window := candles[start:]
+	highIdx, lowIdx := 0, 0
+	highest := window[0].EffectiveHigh()
+	lowest := window[0].EffectiveLow()
+	for i, candle := range window {
+		if candle.EffectiveHigh() > highest {
+			highest = candle.EffectiveHigh()
+			highIdx = i
+		}
+		if candle.EffectiveLow() < lowest {
+			lowest = candle.EffectiveLow()
+			lowIdx = i
+		}
+	}
 	diff := highest - lowest
+	// Anchor the retracement to whichever extreme is the more recent swing point. If the
+	// high occurred after the low (an up-swing), levels are the classic pullback-down
+	// measurement from the high. If the low occurred after the high (a down-swing),
+	// price is retracing upward from the low, so levels must be measured as a bounce up
+	// from the low instead — anchoring to the high in that case mislabels which level is
+	// nearer-term support vs. resistance.
+	upswing := highIdx >= lowIdx
 	for _, level := range fibonacciRetracementLevels {
-		levels[level.key] = highest - diff*level.ratio
+		if upswing {
+			levels[level.key] = highest - diff*level.ratio
+		} else {
+			levels[level.key] = lowest + diff*level.ratio
+		}
 	}
 	return levels
 }
@@ -1159,7 +1214,7 @@ func DEMA(values []float64, period int) float64 {
 	if len(ema1) < period {
 		return 0
 	}
-	ema2 := EMASeries(ema1[period-1:], period)
+	ema2 := emaContinueSeries(ema1, period)
 	if len(ema2) == 0 {
 		return 0
 	}
@@ -1174,11 +1229,11 @@ func TEMA(values []float64, period int) float64 {
 	if len(ema1) < period {
 		return 0
 	}
-	ema2 := EMASeries(ema1[period-1:], period)
-	if len(ema2) < period {
+	ema2 := emaContinueSeries(ema1, period)
+	if len(ema2) == 0 {
 		return 0
 	}
-	ema3 := EMASeries(ema2[period-1:], period)
+	ema3 := emaContinueSeries(ema2, period)
 	if len(ema3) == 0 {
 		return 0
 	}
@@ -1193,11 +1248,11 @@ func TRIX(values []float64, period int) float64 {
 	if len(ema1) < period {
 		return 0
 	}
-	ema2 := EMASeries(ema1[period-1:], period)
-	if len(ema2) < period {
+	ema2 := emaContinueSeries(ema1, period)
+	if len(ema2) == 0 {
 		return 0
 	}
-	ema3 := EMASeries(ema2[period-1:], period)
+	ema3 := emaContinueSeries(ema2, period)
 	if len(ema3) < 2 {
 		return 0
 	}
@@ -1481,10 +1536,11 @@ func KnowSureThing(values []float64) float64 {
 		}
 		return out
 	}
+	// Pring's canonical KST: ROC periods 10/15/20/30 smoothed with SMA periods 10/10/10/15.
 	rcma1 := SMA(rocSeries(values, 10), 10)
-	rcma2 := SMA(rocSeries(values, 15), 13)
-	rcma3 := SMA(rocSeries(values, 20), 15)
-	rcma4 := SMA(rocSeries(values, 30), 20)
+	rcma2 := SMA(rocSeries(values, 15), 10)
+	rcma3 := SMA(rocSeries(values, 20), 10)
+	rcma4 := SMA(rocSeries(values, 30), 15)
 	return rcma1 + 2*rcma2 + 3*rcma3 + 4*rcma4
 }
 
@@ -1493,32 +1549,27 @@ func RelativeVigorIndex(candles []ohlcv.Candle, period int) float64 {
 		return 0
 	}
 	n := len(candles)
-	val := make([]float64, n)
-	ran := make([]float64, n)
+	valSeries := make([]float64, 0, n-3)
+	ranSeries := make([]float64, 0, n-3)
 	for i := 3; i < n; i++ {
 		a := candles[i].EffectiveClose() - candles[i].EffectiveOpen()
 		b := candles[i-1].EffectiveClose() - candles[i-1].EffectiveOpen()
 		c := candles[i-2].EffectiveClose() - candles[i-2].EffectiveOpen()
 		d := candles[i-3].EffectiveClose() - candles[i-3].EffectiveOpen()
-		val[i] = (a + 2*b + 2*c + d) / 6.0
+		valSeries = append(valSeries, (a+2*b+2*c+d)/6.0)
 
 		e := candles[i].EffectiveHigh() - candles[i].EffectiveLow()
 		f := candles[i-1].EffectiveHigh() - candles[i-1].EffectiveLow()
 		g := candles[i-2].EffectiveHigh() - candles[i-2].EffectiveLow()
 		h := candles[i-3].EffectiveHigh() - candles[i-3].EffectiveLow()
-		ran[i] = (e + 2*f + 2*g + h) / 6.0
+		ranSeries = append(ranSeries, (e+2*f+2*g+h)/6.0)
 	}
 
-	rviRatio := make([]float64, n)
-	for i := 3; i < n; i++ {
-		if ran[i] == 0 {
-			rviRatio[i] = 0
-		} else {
-			rviRatio[i] = val[i] / ran[i]
-		}
-	}
-
-	return SMA(rviRatio, period)
+	// Standard RVI smooths the numerator and denominator separately over the window and
+	// divides once (SMA(val,N)/SMA(ran,N)). Dividing each bar first and then averaging
+	// the ratios (the previous implementation) lets a single abnormally narrow-range bar
+	// dominate the whole window.
+	return mathutil.SafeDiv(SMA(valSeries, period), SMA(ranSeries, period))
 }
 
 func ElderRay(candles []ohlcv.Candle, period int) (float64, float64) {
@@ -1645,20 +1696,38 @@ func StochasticMomentumIndex(candles []ohlcv.Candle, period, smooth int) (float6
 	if len(candles) == 0 || period <= 0 || smooth <= 0 {
 		return 0, 0
 	}
-	values := make([]float64, len(candles))
+	diff := make([]float64, len(candles))
+	rng := make([]float64, len(candles))
 	for i := range candles {
 		start := maxInt(0, i-period+1)
 		highest := mathutil.Max(highs(candles[start : i+1]))
 		lowest := mathutil.Min(lows(candles[start : i+1]))
 		mid := (highest + lowest) / 2
-		denominator := (highest - lowest) / 2
-		if mathutil.AlmostEqual(denominator, 0) {
-			values[i] = 0
-		} else {
-			values[i] = 100 * (candles[i].EffectiveClose() - mid) / denominator
-		}
+		diff[i] = candles[i].EffectiveClose() - mid
+		rng[i] = highest - lowest
 	}
-	return EMA(values, smooth), EMA(EMASeries(values, smooth), smooth)
+	// Standard SMI double-smooths the numerator (close - midpoint) and denominator
+	// (high-low range) series independently, then divides once. Dividing bar-by-bar
+	// first and smoothing the resulting ratio (the previous implementation) lets a
+	// single abnormally narrow-range bar dominate the smoothed output. The second
+	// smoothing stage continues the EMA recursion (emaContinueSeries) rather than
+	// re-seeding a fresh SMA warm-up on already-smoothed data, matching the DEMA/TEMA/TRIX
+	// cascade convention.
+	avgDiff := emaContinueSeries(EMASeries(diff, smooth), smooth)
+	avgRange := emaContinueSeries(EMASeries(rng, smooth), smooth)
+	if len(avgDiff) == 0 || len(avgRange) == 0 {
+		return 0, 0
+	}
+	smiSeries := make([]float64, len(avgDiff))
+	for i := range smiSeries {
+		halfRange := avgRange[i] / 2
+		if mathutil.AlmostEqual(halfRange, 0) {
+			smiSeries[i] = 0
+			continue
+		}
+		smiSeries[i] = 100 * avgDiff[i] / halfRange
+	}
+	return smiSeries[len(smiSeries)-1], EMA(smiSeries, smooth)
 }
 
 func EaseOfMovement(candles []ohlcv.Candle, period int) float64 {

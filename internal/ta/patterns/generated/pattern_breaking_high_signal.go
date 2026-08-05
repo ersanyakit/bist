@@ -6,7 +6,7 @@ func init() {
 		Name:       "Breaking High Signal",
 		Category:   "candlestick",
 		Group:      "coklu_mum_formasyonlari",
-		Direction:  "neutral",
+		Direction:  "bullish",
 		Template:   "candlestick",
 		Confidence: 0.66,
 		Evidence:   "candlestick geometry matched the named setup",

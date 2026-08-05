@@ -137,6 +137,44 @@ func TestFetchBISTBulletinRecordsForAnalysisUsesAsOfNotForecastFor(t *testing.T)
 	}
 }
 
+// TestValidateTimeframeCandleContinuityCatchesOutOfOrderRegardlessOfGapTolerance guards
+// against a coverage gap found in the 2026-08-05 audit: maxAllowedCandleGap returns 0
+// (meaning "no configured gap tolerance") for any timeframe other than 1D/1W/1M, and the
+// old implementation used that as a signal to skip the ordering/duplicate-timestamp
+// check entirely — even though 3M/6M/1Y/YTD/ALL all carry real daily-resolution candles
+// through analyzeTimeframe into indicators.Snapshot/formations.Analyze, which trust
+// candles[len(candles)-1] and slice windows to mean "chronological order".
+func TestValidateTimeframeCandleContinuityCatchesOutOfOrderRegardlessOfGapTolerance(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	outOfOrder := []ohlcv.Candle{
+		{Time: base, Close: 100},
+		{Time: base.AddDate(0, 0, 2), Close: 101},
+		{Time: base.AddDate(0, 0, 1), Close: 102}, // out of order: before the previous candle
+	}
+	duplicate := []ohlcv.Candle{
+		{Time: base, Close: 100},
+		{Time: base.AddDate(0, 0, 1), Close: 101},
+		{Time: base.AddDate(0, 0, 1), Close: 102}, // duplicate timestamp
+	}
+	wellOrdered := []ohlcv.Candle{
+		{Time: base, Close: 100},
+		{Time: base.AddDate(0, 0, 1), Close: 101},
+		{Time: base.AddDate(0, 0, 2), Close: 102},
+	}
+
+	for _, timeframe := range []string{"1D", "3M", "6M", "1Y", "YTD", "ALL"} {
+		if err := validateTimeframeCandleContinuity(outOfOrder, timeframe); err == nil {
+			t.Errorf("timeframe %s: expected error for out-of-order candles, got nil", timeframe)
+		}
+		if err := validateTimeframeCandleContinuity(duplicate, timeframe); err == nil {
+			t.Errorf("timeframe %s: expected error for duplicate timestamps, got nil", timeframe)
+		}
+		if err := validateTimeframeCandleContinuity(wellOrdered, timeframe); err != nil {
+			t.Errorf("timeframe %s: unexpected error for well-ordered candles: %v", timeframe, err)
+		}
+	}
+}
+
 func TestBuildQuantAnalysisComputesRiskReturnAndBenchmark(t *testing.T) {
 	candles := make([]ohlcv.Candle, 0, 80)
 	price := 100.0
@@ -627,6 +665,58 @@ func TestWeakValidatedForecastDampsPointAndWidensInterval(t *testing.T) {
 	}
 	if !containsString(got.Warnings, "weak_validation_point_forecast_damped_interval_widened") {
 		t.Fatalf("expected weak validation warning: %+v", got.Warnings)
+	}
+}
+
+func TestDecisionIntervalUsesConformalResidualBand(t *testing.T) {
+	rows := make([]NextSessionBacktestRow, 0, nextSessionPointForecastMinBacktestSamples)
+	for i := 0; i < nextSessionPointForecastMinBacktestSamples; i++ {
+		rows = append(rows, NextSessionBacktestRow{ClosePctError: 1 + float64(i)*0.10})
+	}
+	forecast := NextSessionForecast{
+		Computed:       true,
+		ForecastFor:    "2026-06-22",
+		LastClose:      100,
+		PredictedClose: 100,
+		ExpectedLow:    90,
+		ExpectedHigh:   110,
+		Model:          "separate_open_gap_close_intraday_v2",
+	}
+
+	got := calibrateNextSessionDecisionInterval(forecast, nextSessionForecastBacktestMetrics{
+		samples:             nextSessionPointForecastMinBacktestSamples,
+		closeMAEPct:         1.70,
+		directionHitRatePct: 58,
+		rows:                rows,
+	}, ohlcv.AssetTypeEquity, "ASELS")
+
+	if got.DecisionIntervalStatus != "active" || got.DecisionIntervalLow <= 0 || got.DecisionIntervalHigh <= got.DecisionIntervalLow {
+		t.Fatalf("expected active decision interval: %+v", got)
+	}
+	if got.DecisionIntervalWidthPct <= 0 || got.DecisionIntervalWidthPct >= 10 {
+		t.Fatalf("expected narrow conformal decision interval, got width %.2f in %+v", got.DecisionIntervalWidthPct, got)
+	}
+	if !strings.Contains(got.DecisionIntervalReason, "conformal_q75_close_error_pct") {
+		t.Fatalf("expected q75 conformal reason: %+v", got)
+	}
+	if !strings.Contains(got.Model, "decision_interval_conformal_v1") {
+		t.Fatalf("expected decision interval model marker: %+v", got)
+	}
+
+	weak := calibrateNextSessionDecisionInterval(forecast, nextSessionForecastBacktestMetrics{
+		samples:             nextSessionPointForecastMinBacktestSamples,
+		closeMAEPct:         2.60,
+		directionHitRatePct: 43,
+		rows:                rows,
+	}, ohlcv.AssetTypeEquity, "ASELS")
+	if weak.DecisionIntervalStatus != "candidate_validation_failed" {
+		t.Fatalf("weak validation interval must stay candidate-only: %+v", weak)
+	}
+	if !strings.Contains(weak.DecisionIntervalReason, "conformal_q80_close_error_pct") {
+		t.Fatalf("expected q80 candidate interval reason: %+v", weak)
+	}
+	if !containsString(weak.Warnings, "decision_interval_candidate_validation_failed") {
+		t.Fatalf("expected candidate validation warning: %+v", weak.Warnings)
 	}
 }
 
