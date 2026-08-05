@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	forecastLedgerSchemaVersion                = 1
+	forecastLedgerSchemaVersion                = 2
 	nextSessionScenarioPointMinBacktestSamples = 30
 	nextSessionScenarioPointMaxCloseMAPEPct    = 2.0
 	nextSessionScenarioPointMinDirectionHitPct = 50.0
@@ -53,6 +53,11 @@ type forecastLedgerEntry struct {
 	PublishedPredictedClose         *float64                     `json:"published_predicted_close,omitempty"`
 	IntervalLow                     float64                      `json:"interval_low,omitempty"`
 	IntervalHigh                    float64                      `json:"interval_high,omitempty"`
+	DecisionIntervalLow             float64                      `json:"decision_interval_low,omitempty"`
+	DecisionIntervalHigh            float64                      `json:"decision_interval_high,omitempty"`
+	DecisionIntervalWidthPct        float64                      `json:"decision_interval_width_pct,omitempty"`
+	DecisionIntervalStatus          string                       `json:"decision_interval_status,omitempty"`
+	DecisionIntervalReason          string                       `json:"decision_interval_reason,omitempty"`
 	Confidence                      float64                      `json:"confidence"`
 	ConfidenceLabel                 string                       `json:"confidence_label,omitempty"`
 	PredictedCloseDirection         string                       `json:"predicted_close_direction,omitempty"`
@@ -100,6 +105,11 @@ type forecastVerificationEvent struct {
 	LastClose                      float64  `json:"last_close,omitempty"`
 	IntervalLow                    float64  `json:"interval_low,omitempty"`
 	IntervalHigh                   float64  `json:"interval_high,omitempty"`
+	DecisionIntervalLow            float64  `json:"decision_interval_low,omitempty"`
+	DecisionIntervalHigh           float64  `json:"decision_interval_high,omitempty"`
+	DecisionIntervalWidthPct       float64  `json:"decision_interval_width_pct,omitempty"`
+	DecisionIntervalStatus         string   `json:"decision_interval_status,omitempty"`
+	DecisionIntervalReason         string   `json:"decision_interval_reason,omitempty"`
 	CloseErrorTL                   float64  `json:"close_error_tl,omitempty"`
 	CloseAbsErrorPct               float64  `json:"close_abs_error_pct,omitempty"`
 	CloseDirectionHit              *bool    `json:"close_direction_hit,omitempty"`
@@ -107,6 +117,7 @@ type forecastVerificationEvent struct {
 	ScenarioCloseAbsErrorPct       float64  `json:"scenario_close_abs_error_pct,omitempty"`
 	ScenarioCloseDirectionHit      *bool    `json:"scenario_close_direction_hit,omitempty"`
 	IntervalHit                    *bool    `json:"interval_hit,omitempty"`
+	DecisionIntervalHit            *bool    `json:"decision_interval_hit,omitempty"`
 	OfficialCloseSource            string   `json:"official_close_source,omitempty"`
 	OfficialCloseSourcePath        string   `json:"official_close_source_path,omitempty"`
 	DataSnapshotHash               string   `json:"data_snapshot_hash,omitempty"`
@@ -188,6 +199,11 @@ type forecastActualVsAISummary struct {
 	BandOnlyEvents                  int     `json:"band_only_events,omitempty"`
 	IntervalHits                    int     `json:"interval_hits,omitempty"`
 	IntervalMisses                  int     `json:"interval_misses,omitempty"`
+	DecisionIntervalEvents          int     `json:"decision_interval_events,omitempty"`
+	DecisionIntervalHits            int     `json:"decision_interval_hits,omitempty"`
+	DecisionIntervalMisses          int     `json:"decision_interval_misses,omitempty"`
+	AverageRiskIntervalWidthPct     float64 `json:"average_risk_interval_width_pct,omitempty"`
+	AverageDecisionIntervalWidthPct float64 `json:"average_decision_interval_width_pct,omitempty"`
 	AveragePublishedAbsErrorPct     float64 `json:"average_published_abs_error_pct,omitempty"`
 	MaxPublishedAbsErrorPct         float64 `json:"max_published_abs_error_pct,omitempty"`
 	AverageScenarioOnlyAbsErrorPct  float64 `json:"average_scenario_only_abs_error_pct,omitempty"`
@@ -212,6 +228,13 @@ type forecastActualVsAIRow struct {
 	IntervalLow                    float64  `json:"interval_low,omitempty"`
 	IntervalHigh                   float64  `json:"interval_high,omitempty"`
 	IntervalHit                    *bool    `json:"interval_hit,omitempty"`
+	DecisionIntervalLow            float64  `json:"decision_interval_low,omitempty"`
+	DecisionIntervalHigh           float64  `json:"decision_interval_high,omitempty"`
+	DecisionIntervalHit            *bool    `json:"decision_interval_hit,omitempty"`
+	DecisionIntervalWidthPct       float64  `json:"decision_interval_width_pct,omitempty"`
+	DecisionIntervalStatus         string   `json:"decision_interval_status,omitempty"`
+	DecisionIntervalReason         string   `json:"decision_interval_reason,omitempty"`
+	RiskIntervalWidthPct           float64  `json:"risk_interval_width_pct,omitempty"`
 	PublishedCloseAbsErrorPct      *float64 `json:"published_close_abs_error_pct,omitempty"`
 	ScenarioOnlyCloseAbsErrorPct   *float64 `json:"scenario_only_close_abs_error_pct,omitempty"`
 	CloseDirectionHit              *bool    `json:"close_direction_hit,omitempty"`
@@ -434,13 +457,15 @@ func runForecastCompareReport(ctx context.Context, cfg appconfig.Config, store *
 		}
 	}
 	fmt.Printf("forecast actual-vs-ai report written for %s: %s\n", normalized, target)
-	fmt.Printf("summary: verified=%d published_point=%d scenario_only=%d band_only=%d interval_hits=%d interval_misses=%d\n",
+	fmt.Printf("summary: verified=%d published_point=%d scenario_only=%d band_only=%d interval_hits=%d interval_misses=%d decision_interval_hits=%d decision_interval_misses=%d\n",
 		report.Summary.VerifiedEvents,
 		report.Summary.PublishedPointEvents,
 		report.Summary.ScenarioOnlyEvents,
 		report.Summary.BandOnlyEvents,
 		report.Summary.IntervalHits,
 		report.Summary.IntervalMisses,
+		report.Summary.DecisionIntervalHits,
+		report.Summary.DecisionIntervalMisses,
 	)
 	return nil
 }
@@ -540,6 +565,11 @@ func forecastLedgerEntryFromForecast(symbol string, asOf datasource.DailyBulleti
 		PublishedPredictedClose:         publishedPredictedClose,
 		IntervalLow:                     low,
 		IntervalHigh:                    high,
+		DecisionIntervalLow:             forecast.DecisionIntervalLow,
+		DecisionIntervalHigh:            forecast.DecisionIntervalHigh,
+		DecisionIntervalWidthPct:        forecast.DecisionIntervalWidthPct,
+		DecisionIntervalStatus:          forecast.DecisionIntervalStatus,
+		DecisionIntervalReason:          forecast.DecisionIntervalReason,
 		Confidence:                      forecast.Confidence,
 		ConfidenceLabel:                 forecast.ConfidenceLabel,
 		PredictedCloseDirection:         predictedCloseDirection,
@@ -840,6 +870,11 @@ func buildForecastVerificationEvents(entries []forecastLedgerEntry, records []da
 			LastClose:                      entry.LastClose,
 			IntervalLow:                    entry.IntervalLow,
 			IntervalHigh:                   entry.IntervalHigh,
+			DecisionIntervalLow:            entry.DecisionIntervalLow,
+			DecisionIntervalHigh:           entry.DecisionIntervalHigh,
+			DecisionIntervalWidthPct:       entry.DecisionIntervalWidthPct,
+			DecisionIntervalStatus:         entry.DecisionIntervalStatus,
+			DecisionIntervalReason:         entry.DecisionIntervalReason,
 			DataSnapshotHash:               entry.DataSnapshotHash,
 			Model:                          entry.Model,
 			ForecastContext:                entry.ForecastContext,
@@ -883,6 +918,10 @@ func buildForecastVerificationEvents(entries []forecastLedgerEntry, records []da
 			}
 			intervalHit := forecastIntervalHit(actual.Close, entry.IntervalLow, entry.IntervalHigh)
 			event.IntervalHit = &intervalHit
+			if entry.DecisionIntervalLow > 0 && entry.DecisionIntervalHigh > 0 {
+				decisionIntervalHit := forecastIntervalHit(actual.Close, entry.DecisionIntervalLow, entry.DecisionIntervalHigh)
+				event.DecisionIntervalHit = &decisionIntervalHit
+			}
 		}
 		event.VerificationID = forecastVerificationID(event)
 		out = append(out, event)
@@ -898,6 +937,16 @@ func forecastIntervalHit(actual, low, high float64) bool {
 		low, high = high, low
 	}
 	return actual >= low && actual <= high
+}
+
+func forecastIntervalWidthPct(low, high, base float64) float64 {
+	if low <= 0 || high <= 0 || base <= 0 {
+		return 0
+	}
+	if low > high {
+		low, high = high, low
+	}
+	return roundAuditMetric(100 * (high - low) / base)
 }
 
 func forecastVerificationID(event forecastVerificationEvent) string {
@@ -1113,6 +1162,10 @@ func buildForecastActualVsAIReport(symbol string, from, to time.Time, verificati
 	publishedAbsCount := 0
 	scenarioAbsTotal := 0.0
 	scenarioAbsCount := 0
+	riskWidthTotal := 0.0
+	riskWidthCount := 0
+	decisionWidthTotal := 0.0
+	decisionWidthCount := 0
 	for _, event := range events {
 		if event.Symbol != symbol || event.TargetDate < fromDate || event.TargetDate > toDate {
 			continue
@@ -1127,6 +1180,13 @@ func buildForecastActualVsAIReport(symbol string, from, to time.Time, verificati
 			IntervalLow:                    event.IntervalLow,
 			IntervalHigh:                   event.IntervalHigh,
 			IntervalHit:                    copyForecastBoolPtr(event.IntervalHit),
+			DecisionIntervalLow:            event.DecisionIntervalLow,
+			DecisionIntervalHigh:           event.DecisionIntervalHigh,
+			DecisionIntervalHit:            copyForecastBoolPtr(event.DecisionIntervalHit),
+			DecisionIntervalWidthPct:       event.DecisionIntervalWidthPct,
+			DecisionIntervalStatus:         event.DecisionIntervalStatus,
+			DecisionIntervalReason:         event.DecisionIntervalReason,
+			RiskIntervalWidthPct:           forecastIntervalWidthPct(event.IntervalLow, event.IntervalHigh, event.LastClose),
 			SuppressionReason:              event.SuppressionReason,
 			ScenarioPointSuppressionReason: event.ScenarioPointSuppressionReason,
 			OfficialCloseSource:            event.OfficialCloseSource,
@@ -1193,6 +1253,22 @@ func buildForecastActualVsAIReport(symbol string, from, to time.Time, verificati
 				report.Summary.IntervalMisses++
 			}
 		}
+		if row.RiskIntervalWidthPct > 0 {
+			riskWidthTotal += row.RiskIntervalWidthPct
+			riskWidthCount++
+		}
+		if event.DecisionIntervalHit != nil {
+			report.Summary.DecisionIntervalEvents++
+			if *event.DecisionIntervalHit {
+				report.Summary.DecisionIntervalHits++
+			} else {
+				report.Summary.DecisionIntervalMisses++
+			}
+		}
+		if row.DecisionIntervalWidthPct > 0 {
+			decisionWidthTotal += row.DecisionIntervalWidthPct
+			decisionWidthCount++
+		}
 		report.Summary.TotalEvents++
 		report.Rows = append(report.Rows, row)
 	}
@@ -1201,6 +1277,12 @@ func buildForecastActualVsAIReport(symbol string, from, to time.Time, verificati
 	}
 	if scenarioAbsCount > 0 {
 		report.Summary.AverageScenarioOnlyAbsErrorPct = roundAuditMetric(scenarioAbsTotal / float64(scenarioAbsCount))
+	}
+	if riskWidthCount > 0 {
+		report.Summary.AverageRiskIntervalWidthPct = roundAuditMetric(riskWidthTotal / float64(riskWidthCount))
+	}
+	if decisionWidthCount > 0 {
+		report.Summary.AverageDecisionIntervalWidthPct = roundAuditMetric(decisionWidthTotal / float64(decisionWidthCount))
 	}
 	report.Summary.MaxPublishedAbsErrorPct = roundAuditMetric(report.Summary.MaxPublishedAbsErrorPct)
 	report.Summary.MaxScenarioOnlyAbsErrorPct = roundAuditMetric(report.Summary.MaxScenarioOnlyAbsErrorPct)
@@ -1255,6 +1337,13 @@ func forecastActualVsAIMarkdown(report forecastActualVsAIReport) string {
 	fmt.Fprintf(&b, "- Scenario-only rows: %d\n", report.Summary.ScenarioOnlyEvents)
 	fmt.Fprintf(&b, "- Band-only rows: %d\n", report.Summary.BandOnlyEvents)
 	fmt.Fprintf(&b, "- Interval hits/misses: %d/%d\n", report.Summary.IntervalHits, report.Summary.IntervalMisses)
+	if report.Summary.AverageRiskIntervalWidthPct > 0 {
+		fmt.Fprintf(&b, "- Avg risk band width pct: %.2f\n", report.Summary.AverageRiskIntervalWidthPct)
+	}
+	if report.Summary.DecisionIntervalEvents > 0 {
+		fmt.Fprintf(&b, "- Decision interval hits/misses: %d/%d\n", report.Summary.DecisionIntervalHits, report.Summary.DecisionIntervalMisses)
+		fmt.Fprintf(&b, "- Avg decision band width pct: %.2f\n", report.Summary.AverageDecisionIntervalWidthPct)
+	}
 	if report.Summary.PublishedPointEvents > 0 {
 		fmt.Fprintf(&b, "- Published point avg/max abs error pct: %.2f/%.2f\n", report.Summary.AveragePublishedAbsErrorPct, report.Summary.MaxPublishedAbsErrorPct)
 	}
@@ -1265,10 +1354,10 @@ func forecastActualVsAIMarkdown(report forecastActualVsAIReport) string {
 		fmt.Fprintf(&b, "- Rows without point close prediction: %d\n", report.Summary.RowsWithoutPointClosePrediction)
 	}
 	b.WriteString("\n")
-	b.WriteString("| Target date | As of | Mode | Last close | Actual close | AI close | Published close | Scenario close | Band | Interval hit | Abs error pct | Reason |\n")
-	b.WriteString("|---|---|---|---:|---:|---:|---:|---:|---|---|---:|---|\n")
+	b.WriteString("| Target date | As of | Mode | Last close | Actual close | AI close | Published close | Scenario close | Decision band | Decision hit | Risk band | Risk hit | Abs error pct | Reason |\n")
+	b.WriteString("|---|---|---|---:|---:|---:|---:|---:|---|---|---|---|---:|---|\n")
 	for _, row := range report.Rows {
-		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
 			forecastMarkdownEscape(row.TargetDate),
 			forecastMarkdownEscape(row.AsOfDate),
 			forecastMarkdownEscape(row.VerificationMode),
@@ -1277,6 +1366,8 @@ func forecastActualVsAIMarkdown(report forecastActualVsAIReport) string {
 			forecastFormatOptionalFloat(row.AIReportedClose),
 			forecastFormatOptionalFloat(row.PublishedPredictedClose),
 			forecastFormatOptionalFloat(row.ScenarioPredictedClose),
+			forecastMarkdownEscape(forecastFormatBand(row.DecisionIntervalLow, row.DecisionIntervalHigh)),
+			forecastFormatOptionalBool(row.DecisionIntervalHit),
 			forecastMarkdownEscape(forecastFormatBand(row.IntervalLow, row.IntervalHigh)),
 			forecastFormatOptionalBool(row.IntervalHit),
 			forecastFormatOptionalFloat(forecastCompareRowErrorPct(row)),
@@ -1299,9 +1390,16 @@ func forecastActualVsAICSV(report forecastActualVsAIReport) string {
 		"ai_close",
 		"published_predicted_close",
 		"scenario_predicted_close",
+		"decision_interval_low",
+		"decision_interval_high",
+		"decision_interval_hit",
+		"decision_interval_width_pct",
+		"decision_interval_status",
+		"decision_interval_reason",
 		"interval_low",
 		"interval_high",
 		"interval_hit",
+		"risk_interval_width_pct",
 		"abs_error_pct",
 		"close_direction_hit",
 		"suppression_reason",
@@ -1319,9 +1417,16 @@ func forecastActualVsAICSV(report forecastActualVsAIReport) string {
 			forecastFormatOptionalCSVFloat(row.AIReportedClose),
 			forecastFormatOptionalCSVFloat(row.PublishedPredictedClose),
 			forecastFormatOptionalCSVFloat(row.ScenarioPredictedClose),
+			forecastFormatCSVFloat(row.DecisionIntervalLow),
+			forecastFormatCSVFloat(row.DecisionIntervalHigh),
+			forecastFormatOptionalBool(row.DecisionIntervalHit),
+			forecastFormatCSVFloat(row.DecisionIntervalWidthPct),
+			row.DecisionIntervalStatus,
+			row.DecisionIntervalReason,
 			forecastFormatCSVFloat(row.IntervalLow),
 			forecastFormatCSVFloat(row.IntervalHigh),
 			forecastFormatOptionalBool(row.IntervalHit),
+			forecastFormatCSVFloat(row.RiskIntervalWidthPct),
 			forecastFormatOptionalCSVFloat(forecastCompareRowErrorPct(row)),
 			forecastFormatOptionalBool(row.CloseDirectionHit),
 			row.SuppressionReason,

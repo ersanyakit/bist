@@ -630,6 +630,58 @@ func TestWeakValidatedForecastDampsPointAndWidensInterval(t *testing.T) {
 	}
 }
 
+func TestDecisionIntervalUsesConformalResidualBand(t *testing.T) {
+	rows := make([]NextSessionBacktestRow, 0, nextSessionPointForecastMinBacktestSamples)
+	for i := 0; i < nextSessionPointForecastMinBacktestSamples; i++ {
+		rows = append(rows, NextSessionBacktestRow{ClosePctError: 1 + float64(i)*0.10})
+	}
+	forecast := NextSessionForecast{
+		Computed:       true,
+		ForecastFor:    "2026-06-22",
+		LastClose:      100,
+		PredictedClose: 100,
+		ExpectedLow:    90,
+		ExpectedHigh:   110,
+		Model:          "separate_open_gap_close_intraday_v2",
+	}
+
+	got := calibrateNextSessionDecisionInterval(forecast, nextSessionForecastBacktestMetrics{
+		samples:             nextSessionPointForecastMinBacktestSamples,
+		closeMAEPct:         1.70,
+		directionHitRatePct: 58,
+		rows:                rows,
+	}, ohlcv.AssetTypeEquity, "ASELS")
+
+	if got.DecisionIntervalStatus != "active" || got.DecisionIntervalLow <= 0 || got.DecisionIntervalHigh <= got.DecisionIntervalLow {
+		t.Fatalf("expected active decision interval: %+v", got)
+	}
+	if got.DecisionIntervalWidthPct <= 0 || got.DecisionIntervalWidthPct >= 10 {
+		t.Fatalf("expected narrow conformal decision interval, got width %.2f in %+v", got.DecisionIntervalWidthPct, got)
+	}
+	if !strings.Contains(got.DecisionIntervalReason, "conformal_q75_close_error_pct") {
+		t.Fatalf("expected q75 conformal reason: %+v", got)
+	}
+	if !strings.Contains(got.Model, "decision_interval_conformal_v1") {
+		t.Fatalf("expected decision interval model marker: %+v", got)
+	}
+
+	weak := calibrateNextSessionDecisionInterval(forecast, nextSessionForecastBacktestMetrics{
+		samples:             nextSessionPointForecastMinBacktestSamples,
+		closeMAEPct:         2.60,
+		directionHitRatePct: 43,
+		rows:                rows,
+	}, ohlcv.AssetTypeEquity, "ASELS")
+	if weak.DecisionIntervalStatus != "candidate_validation_failed" {
+		t.Fatalf("weak validation interval must stay candidate-only: %+v", weak)
+	}
+	if !strings.Contains(weak.DecisionIntervalReason, "conformal_q80_close_error_pct") {
+		t.Fatalf("expected q80 candidate interval reason: %+v", weak)
+	}
+	if !containsString(weak.Warnings, "decision_interval_candidate_validation_failed") {
+		t.Fatalf("expected candidate validation warning: %+v", weak.Warnings)
+	}
+}
+
 func TestApplyTradablePriceStepToNextSessionForecastUsesBISTTick(t *testing.T) {
 	forecast := NextSessionForecast{
 		Computed:          true,

@@ -161,6 +161,11 @@ func TestBuildForecastVerificationEventsKeepsBandOnlyOutOfPointMetrics(t *testin
 		LastClose:                      100,
 		IntervalLow:                    95,
 		IntervalHigh:                   105,
+		DecisionIntervalLow:            98,
+		DecisionIntervalHigh:           105,
+		DecisionIntervalWidthPct:       7,
+		DecisionIntervalStatus:         "candidate_validation_failed",
+		DecisionIntervalReason:         "conformal_q80_close_error_pct:3.50",
 		DataSnapshotHash:               "hash",
 		PointForecastPublishable:       false,
 		ScenarioPointAvailable:         false,
@@ -185,6 +190,12 @@ func TestBuildForecastVerificationEventsKeepsBandOnlyOutOfPointMetrics(t *testin
 	}
 	if got.IntervalHit == nil || !*got.IntervalHit {
 		t.Fatalf("expected interval hit for band-only verification: %+v", got)
+	}
+	if got.DecisionIntervalHit == nil || !*got.DecisionIntervalHit {
+		t.Fatalf("expected decision interval hit for band-only verification: %+v", got)
+	}
+	if got.DecisionIntervalStatus != "candidate_validation_failed" || got.DecisionIntervalWidthPct != 7 {
+		t.Fatalf("decision interval metadata was not carried forward: %+v", got)
 	}
 }
 
@@ -324,6 +335,12 @@ func TestBuildForecastActualVsAIReportSeparatesActualPredictionAndBand(t *testin
 			LastClose:                 100,
 			IntervalLow:               101,
 			IntervalHigh:              105,
+			DecisionIntervalLow:       102,
+			DecisionIntervalHigh:      105,
+			DecisionIntervalHit:       &intervalHit,
+			DecisionIntervalWidthPct:  3,
+			DecisionIntervalStatus:    "active",
+			DecisionIntervalReason:    "conformal_q75_close_error_pct:1.50",
 			CloseAbsErrorPct:          0.96,
 			CloseDirectionHit:         &publishedDirectionHit,
 			IntervalHit:               &intervalHit,
@@ -344,6 +361,12 @@ func TestBuildForecastActualVsAIReportSeparatesActualPredictionAndBand(t *testin
 			LastClose:                 104,
 			IntervalLow:               99,
 			IntervalHigh:              105,
+			DecisionIntervalLow:       98,
+			DecisionIntervalHigh:      103,
+			DecisionIntervalHit:       &intervalHit,
+			DecisionIntervalWidthPct:  4,
+			DecisionIntervalStatus:    "candidate_validation_failed",
+			DecisionIntervalReason:    "conformal_q80_close_error_pct:2.50",
 			ScenarioCloseAbsErrorPct:  2,
 			ScenarioCloseDirectionHit: &scenarioDirectionHit,
 			IntervalHit:               &intervalHit,
@@ -362,6 +385,12 @@ func TestBuildForecastActualVsAIReportSeparatesActualPredictionAndBand(t *testin
 			LastClose:                      100,
 			IntervalLow:                    95,
 			IntervalHigh:                   105,
+			DecisionIntervalLow:            98,
+			DecisionIntervalHigh:           106,
+			DecisionIntervalHit:            &intervalMiss,
+			DecisionIntervalWidthPct:       8,
+			DecisionIntervalStatus:         "candidate_validation_failed",
+			DecisionIntervalReason:         "conformal_q80_close_error_pct:4.00",
 			IntervalHit:                    &intervalMiss,
 			PointForecastPublishable:       false,
 			ScenarioPointAvailable:         false,
@@ -378,6 +407,9 @@ func TestBuildForecastActualVsAIReportSeparatesActualPredictionAndBand(t *testin
 	if report.Summary.IntervalHits != 2 || report.Summary.IntervalMisses != 1 || report.Summary.RowsWithoutPointClosePrediction != 1 {
 		t.Fatalf("interval/band summary mismatch: %+v", report.Summary)
 	}
+	if report.Summary.DecisionIntervalHits != 2 || report.Summary.DecisionIntervalMisses != 1 || report.Summary.AverageDecisionIntervalWidthPct != 5 {
+		t.Fatalf("decision interval summary mismatch: %+v", report.Summary)
+	}
 	if len(report.Rows) != 3 {
 		t.Fatalf("rows=%d, want 3", len(report.Rows))
 	}
@@ -391,7 +423,7 @@ func TestBuildForecastActualVsAIReportSeparatesActualPredictionAndBand(t *testin
 		t.Fatalf("band-only row must not expose point forecast metrics: %+v", report.Rows[2])
 	}
 	md := forecastActualVsAIMarkdown(report)
-	for _, want := range []string{"2026-06-02", "104.00", "103.00", "scenario_only", "band_only", "scenario_point_close_mape_above_2pct:2.60"} {
+	for _, want := range []string{"2026-06-02", "104.00", "103.00", "scenario_only", "band_only", "Decision band", "102.00-105.00", "scenario_point_close_mape_above_2pct:2.60"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("markdown report missing %q:\n%s", want, md)
 		}
