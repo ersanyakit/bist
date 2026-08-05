@@ -74,188 +74,192 @@ type extraCandleSpec struct {
 	match      func([]ohlcv.Candle) bool
 }
 
+// additionalCandleSpecs is the rule table for detectAdditionalCandlestickPatterns.
+// Exposed at package level (rather than function-local) so tests can cross-check its
+// directions against the auto-generated pattern catalog in internal/ta/patterns/generated.
+var additionalCandleSpecs = []extraCandleSpec{
+	{"Rickshaw Man", "neutral", 1, 0.70, "doji body appears near the middle with long balanced shadows", func(x []ohlcv.Candle) bool {
+		s := shape(x[len(x)-1])
+		return s.body <= s.rangeSize*0.05 && s.upperWick >= s.rangeSize*0.35 && s.lowerWick >= s.rangeSize*0.35
+	}},
+	{"High Wave Candle", "neutral", 1, 0.68, "small body with unusually long upper and lower shadows", func(x []ohlcv.Candle) bool {
+		s := shape(x[len(x)-1])
+		return s.body <= s.rangeSize*0.25 && s.upperWick >= s.body*2 && s.lowerWick >= s.body*2
+	}},
+	{"Belt Hold Bullish", "bullish", 1, 0.76, "bullish candle opens near the low and closes strong", func(x []ohlcv.Candle) bool {
+		s := shape(x[len(x)-1])
+		return s.bullish && s.lowerWick <= s.rangeSize*0.05 && s.body >= s.rangeSize*0.55
+	}},
+	{"Belt Hold Bearish", "bearish", 1, 0.76, "bearish candle opens near the high and closes weak", func(x []ohlcv.Candle) bool {
+		s := shape(x[len(x)-1])
+		return s.bearish && s.upperWick <= s.rangeSize*0.05 && s.body >= s.rangeSize*0.55
+	}},
+	{"Closing Marubozu Bullish", "bullish", 1, 0.78, "bullish close is near the candle high", func(x []ohlcv.Candle) bool {
+		s := shape(x[len(x)-1])
+		return s.bullish && s.upperWick <= s.rangeSize*0.03 && s.body >= s.rangeSize*0.55
+	}},
+	{"Closing Marubozu Bearish", "bearish", 1, 0.78, "bearish close is near the candle low", func(x []ohlcv.Candle) bool {
+		s := shape(x[len(x)-1])
+		return s.bearish && s.lowerWick <= s.rangeSize*0.03 && s.body >= s.rangeSize*0.55
+	}},
+	{"Opening Marubozu Bullish", "bullish", 1, 0.78, "bullish open is near the candle low", func(x []ohlcv.Candle) bool {
+		s := shape(x[len(x)-1])
+		return s.bullish && s.lowerWick <= s.rangeSize*0.03 && s.body >= s.rangeSize*0.55
+	}},
+	{"Opening Marubozu Bearish", "bearish", 1, 0.78, "bearish open is near the candle high", func(x []ohlcv.Candle) bool {
+		s := shape(x[len(x)-1])
+		return s.bearish && s.upperWick <= s.rangeSize*0.03 && s.body >= s.rangeSize*0.55
+	}},
+	{"Long Upper Shadow", "bearish", 1, 0.66, "upper shadow dominates the candle range", func(x []ohlcv.Candle) bool { s := shape(x[len(x)-1]); return s.upperWick >= s.rangeSize*0.55 }},
+	{"Long Lower Shadow", "bullish", 1, 0.66, "lower shadow dominates the candle range", func(x []ohlcv.Candle) bool { s := shape(x[len(x)-1]); return s.lowerWick >= s.rangeSize*0.55 }},
+	{"Short Line Candle", "neutral", 1, 0.60, "current candle range is small relative to recent range", func(x []ohlcv.Candle) bool { return relativeRange(x) < 0.55 }},
+	{"Long Line Candle", "neutral", 1, 0.62, "current candle range is large relative to recent range", func(x []ohlcv.Candle) bool { return relativeRange(x) > 1.65 }},
+	{"Matching Low", "bullish", 2, 0.72, "two bearish candles close near the same low", func(x []ohlcv.Candle) bool {
+		a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bearish && b.bearish && near(a.close, b.close, 0.005)
+	}},
+	{"Matching High", "bearish", 2, 0.72, "two bullish candles close near the same high", func(x []ohlcv.Candle) bool {
+		a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bullish && b.bullish && near(a.close, b.close, 0.005)
+	}},
+	{"On Neck", "bearish", 2, 0.70, "small bullish candle closes near previous bearish low", func(x []ohlcv.Candle) bool {
+		a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bearish && b.bullish && near(b.close, a.low, 0.01)
+	}},
+	{"In Neck", "bearish", 2, 0.70, "bullish reaction closes at or just above the prior bearish close, barely penetrating the body", func(x []ohlcv.Candle) bool {
+		a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bearish && b.bullish && b.close >= a.close && near(b.close, a.close, 0.005)
+	}},
+	{"Thrusting Pattern", "bearish", 2, 0.70, "bullish candle recovers well past the prior close but stays below the prior bearish midpoint", func(x []ohlcv.Candle) bool {
+		a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bearish && b.bullish && b.close > a.close && !near(b.close, a.close, 0.005) && b.close < (a.open+a.close)/2
+	}},
+	{"Separating Lines Bullish", "bullish", 2, 0.74, "opposite color candles open at nearly the same price and bullish continuation wins", func(x []ohlcv.Candle) bool {
+		a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bearish && b.bullish && near(a.open, b.open, 0.005) && b.close > a.open
+	}},
+	{"Separating Lines Bearish", "bearish", 2, 0.74, "opposite color candles open at nearly the same price and bearish continuation wins", func(x []ohlcv.Candle) bool {
+		a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bullish && b.bearish && near(a.open, b.open, 0.005) && b.close < a.open
+	}},
+	{"Homing Pigeon", "bullish", 2, 0.72, "small bearish body nests inside a prior larger bearish body", func(x []ohlcv.Candle) bool {
+		a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bearish && b.bearish && b.body < a.body && b.open < a.open && b.close > a.close
+	}},
+	{"Kicking Bullish", "bullish", 2, 0.82, "bearish marubozu is followed by a bullish marubozu that gaps clear of its entire range", func(x []ohlcv.Candle) bool {
+		a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bearish && b.bullish && b.low > a.high && b.body >= a.body*0.8
+	}},
+	{"Kicking Bearish", "bearish", 2, 0.82, "bullish marubozu is followed by a bearish marubozu that gaps clear of its entire range", func(x []ohlcv.Candle) bool {
+		a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bullish && b.bearish && b.high < a.low && b.body >= a.body*0.8
+	}},
+	{"Counterattack Bullish", "bullish", 2, 0.74, "bearish candle is countered by bullish close near the same level", func(x []ohlcv.Candle) bool {
+		a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bearish && b.bullish && near(a.close, b.close, 0.006)
+	}},
+	{"Counterattack Bearish", "bearish", 2, 0.74, "bullish candle is countered by bearish close near the same level", func(x []ohlcv.Candle) bool {
+		a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bullish && b.bearish && near(a.close, b.close, 0.006)
+	}},
+	{"Upside Gap Two Crows", "bearish", 3, 0.76, "two bearish candles appear after an upside gap", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bullish && b.bearish && d.bearish && b.low > a.high && d.close < b.close
+	}},
+	{"Downside Gap Two Rabbits", "bullish", 3, 0.76, "two bullish candles appear after a downside gap", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bearish && b.bullish && d.bullish && b.high < a.low && d.close > b.close
+	}},
+	{"Abandoned Baby Bullish", "bullish", 3, 0.86, "doji is isolated below prior and next candle ranges", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bearish && b.body <= b.rangeSize*0.05 && d.bullish && b.high < a.low && d.low > b.high
+	}},
+	{"Abandoned Baby Bearish", "bearish", 3, 0.86, "doji is isolated above prior and next candle ranges", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bullish && b.body <= b.rangeSize*0.05 && d.bearish && b.low > a.high && d.high < b.low
+	}},
+	{"Tri Star Bullish", "bullish", 3, 0.78, "three doji candles form after weakness", func(x []ohlcv.Candle) bool { return threeDoji(x) && downtrend(x, len(x)-1, 6) }},
+	{"Tri Star Bearish", "bearish", 3, 0.78, "three doji candles form after strength", func(x []ohlcv.Candle) bool { return threeDoji(x) && uptrend(x, len(x)-1, 6) }},
+	{"Three Inside Up", "bullish", 3, 0.80, "bullish confirmation follows a bullish harami structure", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bearish && b.bullish && b.open >= a.close && b.close <= a.open && d.bullish && d.close > a.open
+	}},
+	{"Three Inside Down", "bearish", 3, 0.80, "bearish confirmation follows a bearish harami structure", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bullish && b.bearish && b.open <= a.close && b.close >= a.open && d.bearish && d.close < a.open
+	}},
+	{"Three Outside Up", "bullish", 3, 0.82, "bullish engulfing receives a third candle confirmation", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bearish && b.bullish && b.open <= a.close && b.close >= a.open && d.close > b.close
+	}},
+	{"Three Outside Down", "bearish", 3, 0.82, "bearish engulfing receives a third candle confirmation", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bullish && b.bearish && b.open >= a.close && b.close <= a.open && d.close < b.close
+	}},
+	{"Three Stars in the South", "bullish", 3, 0.76, "three bearish candles contract in range near lows", func(x []ohlcv.Candle) bool { return contractingThree(x, false) }},
+	{"Three Advancing White Soldiers", "bullish", 3, 0.86, "three advancing bullish candles close progressively higher", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bullish && b.bullish && d.bullish && a.close < b.close && b.close < d.close
+	}},
+	{"Identical Three Crows", "bearish", 3, 0.84, "three bearish candles close progressively lower with similar opens", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bearish && b.bearish && d.bearish && near(a.open, b.open, 0.015) && near(b.open, d.open, 0.015) && a.close > b.close && b.close > d.close
+	}},
+	{"Deliberation", "bearish", 3, 0.72, "third bullish candle weakens after two strong advances", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bullish && b.bullish && d.bullish && d.body < b.body*0.55 && b.close > a.close && d.close > b.close
+	}},
+	{"Advance Block", "bearish", 3, 0.72, "bullish advance loses quality as upper shadows expand", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bullish && b.bullish && d.bullish && a.close < b.close && b.close < d.close && d.upperWick > b.upperWick && b.upperWick > a.upperWick
+	}},
+	{"Two Crows", "bearish", 3, 0.74, "two bearish candles follow an up candle near highs", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bullish && b.bearish && d.bearish && b.close > a.close && d.close < b.close
+	}},
+	{"Unique Three River Bottom", "bullish", 3, 0.74, "bearish washout is followed by a smaller low and bullish reaction", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bearish && b.bearish && b.low < a.low && d.bullish && d.close < b.open
+	}},
+	{"Upside Tasuki Gap", "bullish", 3, 0.76, "bearish third candle partially fills an upside gap without closing it", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bullish && b.bullish && b.low > a.high && d.bearish && d.close > a.high
+	}},
+	{"Downside Tasuki Gap", "bearish", 3, 0.76, "bullish third candle partially fills a downside gap without closing it", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bearish && b.bearish && b.high < a.low && d.bullish && d.close < a.low
+	}},
+	{"Side by Side White Lines Bullish", "bullish", 3, 0.74, "two similar bullish candles hold above an upside gap", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bullish && b.bullish && d.bullish && b.low > a.high && near(b.open, d.open, 0.015)
+	}},
+	{"Side by Side White Lines Bearish", "bearish", 3, 0.74, "two similar bullish candles fail under a downside gap", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bearish && b.bullish && d.bullish && b.high < a.low && near(b.open, d.open, 0.015)
+	}},
+	{"Mat Hold Bullish", "bullish", 5, 0.80, "strong bullish candle holds through a shallow multi-bar pause and resumes", func(x []ohlcv.Candle) bool { return matHold(x, true) }},
+	{"Mat Hold Bearish", "bearish", 5, 0.80, "strong bearish candle holds through a shallow multi-bar pause and resumes", func(x []ohlcv.Candle) bool { return matHold(x, false) }},
+	{"Rising Window", "bullish", 2, 0.72, "current low gaps above prior high", func(x []ohlcv.Candle) bool { a, b := shape(x[len(x)-2]), shape(x[len(x)-1]); return b.low > a.high }},
+	{"Falling Window", "bearish", 2, 0.72, "current high gaps below prior low", func(x []ohlcv.Candle) bool { a, b := shape(x[len(x)-2]), shape(x[len(x)-1]); return b.high < a.low }},
+	{"Upside Gap Three Methods", "bullish", 3, 0.74, "third candle fills the upside gap but closes above the first candle", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bullish && b.bullish && b.low > a.high && d.bearish && d.close > a.close
+	}},
+	{"Downside Gap Three Methods", "bearish", 3, 0.74, "third candle fills the downside gap but closes below the first candle", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bearish && b.bearish && b.high < a.low && d.bullish && d.close < a.close
+	}},
+	{"Ladder Bottom", "bullish", 5, 0.76, "four declining bearish candles are followed by a strong bullish reversal", func(x []ohlcv.Candle) bool { return ladderBottom(x) }},
+	{"Concealing Baby Swallow", "bullish", 4, 0.78, "bearish sequence compresses and is absorbed near lows", func(x []ohlcv.Candle) bool { return concealingBabySwallow(x) }},
+	{"Stick Sandwich", "bullish", 3, 0.74, "two bearish closes bracket a bullish candle at matching close levels", func(x []ohlcv.Candle) bool {
+		a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
+		return a.bearish && b.bullish && d.bearish && near(a.close, d.close, 0.006)
+	}},
+}
+
 func detectAdditionalCandlestickPatterns(c []ohlcv.Candle, v float64) []ohlcv.PatternResult {
-	specs := []extraCandleSpec{
-		{"Rickshaw Man", "neutral", 1, 0.70, "doji body appears near the middle with long balanced shadows", func(x []ohlcv.Candle) bool {
-			s := shape(x[len(x)-1])
-			return s.body <= s.rangeSize*0.05 && s.upperWick >= s.rangeSize*0.35 && s.lowerWick >= s.rangeSize*0.35
-		}},
-		{"High Wave Candle", "neutral", 1, 0.68, "small body with unusually long upper and lower shadows", func(x []ohlcv.Candle) bool {
-			s := shape(x[len(x)-1])
-			return s.body <= s.rangeSize*0.25 && s.upperWick >= s.body*2 && s.lowerWick >= s.body*2
-		}},
-		{"Belt Hold Bullish", "bullish", 1, 0.76, "bullish candle opens near the low and closes strong", func(x []ohlcv.Candle) bool {
-			s := shape(x[len(x)-1])
-			return s.bullish && s.lowerWick <= s.rangeSize*0.05 && s.body >= s.rangeSize*0.55
-		}},
-		{"Belt Hold Bearish", "bearish", 1, 0.76, "bearish candle opens near the high and closes weak", func(x []ohlcv.Candle) bool {
-			s := shape(x[len(x)-1])
-			return s.bearish && s.upperWick <= s.rangeSize*0.05 && s.body >= s.rangeSize*0.55
-		}},
-		{"Closing Marubozu Bullish", "bullish", 1, 0.78, "bullish close is near the candle high", func(x []ohlcv.Candle) bool {
-			s := shape(x[len(x)-1])
-			return s.bullish && s.upperWick <= s.rangeSize*0.03 && s.body >= s.rangeSize*0.55
-		}},
-		{"Closing Marubozu Bearish", "bearish", 1, 0.78, "bearish close is near the candle low", func(x []ohlcv.Candle) bool {
-			s := shape(x[len(x)-1])
-			return s.bearish && s.lowerWick <= s.rangeSize*0.03 && s.body >= s.rangeSize*0.55
-		}},
-		{"Opening Marubozu Bullish", "bullish", 1, 0.78, "bullish open is near the candle low", func(x []ohlcv.Candle) bool {
-			s := shape(x[len(x)-1])
-			return s.bullish && s.lowerWick <= s.rangeSize*0.03 && s.body >= s.rangeSize*0.55
-		}},
-		{"Opening Marubozu Bearish", "bearish", 1, 0.78, "bearish open is near the candle high", func(x []ohlcv.Candle) bool {
-			s := shape(x[len(x)-1])
-			return s.bearish && s.upperWick <= s.rangeSize*0.03 && s.body >= s.rangeSize*0.55
-		}},
-		{"Long Upper Shadow", "bearish", 1, 0.66, "upper shadow dominates the candle range", func(x []ohlcv.Candle) bool { s := shape(x[len(x)-1]); return s.upperWick >= s.rangeSize*0.55 }},
-		{"Long Lower Shadow", "bullish", 1, 0.66, "lower shadow dominates the candle range", func(x []ohlcv.Candle) bool { s := shape(x[len(x)-1]); return s.lowerWick >= s.rangeSize*0.55 }},
-		{"Short Line Candle", "neutral", 1, 0.60, "current candle range is small relative to recent range", func(x []ohlcv.Candle) bool { return relativeRange(x) < 0.55 }},
-		{"Long Line Candle", "neutral", 1, 0.62, "current candle range is large relative to recent range", func(x []ohlcv.Candle) bool { return relativeRange(x) > 1.65 }},
-		{"Matching Low", "bullish", 2, 0.72, "two bearish candles close near the same low", func(x []ohlcv.Candle) bool {
-			a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bearish && b.bearish && near(a.close, b.close, 0.005)
-		}},
-		{"Matching High", "bearish", 2, 0.72, "two bullish candles close near the same high", func(x []ohlcv.Candle) bool {
-			a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bullish && b.bullish && near(a.close, b.close, 0.005)
-		}},
-		{"On Neck", "bearish", 2, 0.70, "small bullish candle closes near previous bearish low", func(x []ohlcv.Candle) bool {
-			a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bearish && b.bullish && near(b.close, a.low, 0.01)
-		}},
-		{"In Neck", "bearish", 2, 0.70, "bullish reaction closes slightly inside the prior bearish body", func(x []ohlcv.Candle) bool {
-			a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bearish && b.bullish && b.close > a.close && b.close < (a.open+a.close)/2
-		}},
-		{"Thrusting Pattern", "bearish", 2, 0.70, "bullish candle recovers into but not above the prior bearish midpoint", func(x []ohlcv.Candle) bool {
-			a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bearish && b.bullish && b.close > a.close && b.close < (a.open+a.close)/2
-		}},
-		{"Separating Lines Bullish", "bullish", 2, 0.74, "opposite color candles open at nearly the same price and bullish continuation wins", func(x []ohlcv.Candle) bool {
-			a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bearish && b.bullish && near(a.open, b.open, 0.005) && b.close > a.open
-		}},
-		{"Separating Lines Bearish", "bearish", 2, 0.74, "opposite color candles open at nearly the same price and bearish continuation wins", func(x []ohlcv.Candle) bool {
-			a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bullish && b.bearish && near(a.open, b.open, 0.005) && b.close < a.open
-		}},
-		{"Homing Pigeon", "bullish", 2, 0.72, "small bearish body nests inside a prior larger bearish body", func(x []ohlcv.Candle) bool {
-			a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bearish && b.bearish && b.body < a.body && b.open < a.open && b.close > a.close
-		}},
-		{"Kicking Bullish", "bullish", 2, 0.82, "bearish candle is followed by a forceful bullish reversal", func(x []ohlcv.Candle) bool {
-			a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bearish && b.bullish && b.open > a.open && b.body >= a.body*0.8
-		}},
-		{"Kicking Bearish", "bearish", 2, 0.82, "bullish candle is followed by a forceful bearish reversal", func(x []ohlcv.Candle) bool {
-			a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bullish && b.bearish && b.open < a.open && b.body >= a.body*0.8
-		}},
-		{"Counterattack Bullish", "bullish", 2, 0.74, "bearish candle is countered by bullish close near the same level", func(x []ohlcv.Candle) bool {
-			a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bearish && b.bullish && near(a.close, b.close, 0.006)
-		}},
-		{"Counterattack Bearish", "bearish", 2, 0.74, "bullish candle is countered by bearish close near the same level", func(x []ohlcv.Candle) bool {
-			a, b := shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bullish && b.bearish && near(a.close, b.close, 0.006)
-		}},
-		{"Upside Gap Two Crows", "bearish", 3, 0.76, "two bearish candles appear after an upside gap", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bullish && b.bearish && d.bearish && b.low > a.high && d.close < b.close
-		}},
-		{"Downside Gap Two Rabbits", "bullish", 3, 0.76, "two bullish candles appear after a downside gap", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bearish && b.bullish && d.bullish && b.high < a.low && d.close > b.close
-		}},
-		{"Abandoned Baby Bullish", "bullish", 3, 0.86, "doji is isolated below prior and next candle ranges", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bearish && b.body <= b.rangeSize*0.05 && d.bullish && b.high < a.low && d.low > b.high
-		}},
-		{"Abandoned Baby Bearish", "bearish", 3, 0.86, "doji is isolated above prior and next candle ranges", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bullish && b.body <= b.rangeSize*0.05 && d.bearish && b.low > a.high && d.high < b.low
-		}},
-		{"Tri Star Bullish", "bullish", 3, 0.78, "three doji candles form after weakness", func(x []ohlcv.Candle) bool { return threeDoji(x) && downtrend(x, len(x)-1, 6) }},
-		{"Tri Star Bearish", "bearish", 3, 0.78, "three doji candles form after strength", func(x []ohlcv.Candle) bool { return threeDoji(x) && uptrend(x, len(x)-1, 6) }},
-		{"Three Inside Up", "bullish", 3, 0.80, "bullish confirmation follows a bullish harami structure", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bearish && b.bullish && b.open >= a.close && b.close <= a.open && d.bullish && d.close > a.open
-		}},
-		{"Three Inside Down", "bearish", 3, 0.80, "bearish confirmation follows a bearish harami structure", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bullish && b.bearish && b.open <= a.close && b.close >= a.open && d.bearish && d.close < a.open
-		}},
-		{"Three Outside Up", "bullish", 3, 0.82, "bullish engulfing receives a third candle confirmation", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bearish && b.bullish && b.open <= a.close && b.close >= a.open && d.close > b.close
-		}},
-		{"Three Outside Down", "bearish", 3, 0.82, "bearish engulfing receives a third candle confirmation", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bullish && b.bearish && b.open >= a.close && b.close <= a.open && d.close < b.close
-		}},
-		{"Three Stars in the South", "bullish", 3, 0.76, "three bearish candles contract in range near lows", func(x []ohlcv.Candle) bool { return contractingThree(x, false) }},
-		{"Three Advancing White Soldiers", "bullish", 3, 0.86, "three advancing bullish candles close progressively higher", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bullish && b.bullish && d.bullish && a.close < b.close && b.close < d.close
-		}},
-		{"Identical Three Crows", "bearish", 3, 0.84, "three bearish candles close progressively lower with similar opens", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bearish && b.bearish && d.bearish && near(a.open, b.open, 0.015) && near(b.open, d.open, 0.015) && a.close > b.close && b.close > d.close
-		}},
-		{"Deliberation", "bearish", 3, 0.72, "third bullish candle weakens after two strong advances", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bullish && b.bullish && d.bullish && d.body < b.body*0.55 && b.close > a.close && d.close > b.close
-		}},
-		{"Advance Block", "bearish", 3, 0.72, "bullish advance loses quality as upper shadows expand", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bullish && b.bullish && d.bullish && a.close < b.close && b.close < d.close && d.upperWick > b.upperWick && b.upperWick > a.upperWick
-		}},
-		{"Two Crows", "bearish", 3, 0.74, "two bearish candles follow an up candle near highs", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bullish && b.bearish && d.bearish && b.close > a.close && d.close < b.close
-		}},
-		{"Unique Three River Bottom", "bullish", 3, 0.74, "bearish washout is followed by a smaller low and bullish reaction", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bearish && b.bearish && b.low < a.low && d.bullish && d.close < b.open
-		}},
-		{"Upside Tasuki Gap", "bullish", 3, 0.76, "bearish third candle partially fills an upside gap without closing it", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bullish && b.bullish && b.low > a.high && d.bearish && d.close > a.high
-		}},
-		{"Downside Tasuki Gap", "bearish", 3, 0.76, "bullish third candle partially fills a downside gap without closing it", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bearish && b.bearish && b.high < a.low && d.bullish && d.close < a.low
-		}},
-		{"Side by Side White Lines Bullish", "bullish", 3, 0.74, "two similar bullish candles hold above an upside gap", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bullish && b.bullish && d.bullish && b.low > a.high && near(b.open, d.open, 0.015)
-		}},
-		{"Side by Side White Lines Bearish", "bearish", 3, 0.74, "two similar bullish candles fail under a downside gap", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bearish && b.bullish && d.bullish && b.high < a.low && near(b.open, d.open, 0.015)
-		}},
-		{"Mat Hold Bullish", "bullish", 5, 0.80, "strong bullish candle holds through a shallow multi-bar pause and resumes", func(x []ohlcv.Candle) bool { return matHold(x, true) }},
-		{"Mat Hold Bearish", "bearish", 5, 0.80, "strong bearish candle holds through a shallow multi-bar pause and resumes", func(x []ohlcv.Candle) bool { return matHold(x, false) }},
-		{"Rising Window", "bullish", 2, 0.72, "current low gaps above prior high", func(x []ohlcv.Candle) bool { a, b := shape(x[len(x)-2]), shape(x[len(x)-1]); return b.low > a.high }},
-		{"Falling Window", "bearish", 2, 0.72, "current high gaps below prior low", func(x []ohlcv.Candle) bool { a, b := shape(x[len(x)-2]), shape(x[len(x)-1]); return b.high < a.low }},
-		{"Upside Gap Three Methods", "bullish", 3, 0.74, "third candle fills the upside gap but closes above the first candle", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bullish && b.bullish && b.low > a.high && d.bearish && d.close > a.close
-		}},
-		{"Downside Gap Three Methods", "bearish", 3, 0.74, "third candle fills the downside gap but closes below the first candle", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bearish && b.bearish && b.high < a.low && d.bullish && d.close < a.close
-		}},
-		{"Ladder Bottom", "bullish", 5, 0.76, "four declining bearish candles are followed by a strong bullish reversal", func(x []ohlcv.Candle) bool { return ladderBottom(x) }},
-		{"Concealing Baby Swallow", "bullish", 4, 0.78, "bearish sequence compresses and is absorbed near lows", func(x []ohlcv.Candle) bool { return concealingBabySwallow(x) }},
-		{"Stick Sandwich", "bullish", 3, 0.74, "two bearish closes bracket a bullish candle at matching close levels", func(x []ohlcv.Candle) bool {
-			a, b, d := shape(x[len(x)-3]), shape(x[len(x)-2]), shape(x[len(x)-1])
-			return a.bearish && b.bullish && d.bearish && near(a.close, d.close, 0.006)
-		}},
-	}
 	var out []ohlcv.PatternResult
-	for _, spec := range specs {
+	for _, spec := range additionalCandleSpecs {
 		if len(c) < spec.bars || !spec.match(c) {
 			continue
 		}

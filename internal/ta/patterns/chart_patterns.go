@@ -700,11 +700,18 @@ func matchIsland(top bool) func([]ohlcv.Candle, []swing) (bool, int, int) {
 		if len(c) < 4 {
 			return false, 0, 0
 		}
-		a, b, d := shape(c[len(c)-4]), shape(c[len(c)-3]), shape(c[len(c)-1])
+		// The island (candles at len-3 and len-2) must be isolated by a gap on both
+		// sides: entirely clear of `a`'s range on entry and entirely clear of `d`'s
+		// range on exit. Checking only the len-3 candle against `d` (skipping len-2)
+		// lets the middle candle silently overlap either gap without the pattern
+		// noticing.
+		a, b, mid, d := shape(c[len(c)-4]), shape(c[len(c)-3]), shape(c[len(c)-2]), shape(c[len(c)-1])
+		islandLow := math.Min(b.low, mid.low)
+		islandHigh := math.Max(b.high, mid.high)
 		if top {
-			return b.low > a.high && d.high < b.low, len(c) - 4, len(c) - 1
+			return islandLow > a.high && d.high < islandLow, len(c) - 4, len(c) - 1
 		}
-		return b.high < a.low && d.low > b.high, len(c) - 4, len(c) - 1
+		return islandHigh < a.low && d.low > islandHigh, len(c) - 4, len(c) - 1
 	}
 }
 

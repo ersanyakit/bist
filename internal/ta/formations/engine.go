@@ -152,11 +152,24 @@ func DetectSwings(candles []ohlcv.Candle, lookback int) []SwingPoint {
 			if j == i {
 				continue
 			}
-			if candles[j].EffectiveHigh() >= high {
-				isHigh = false
-			}
-			if candles[j].EffectiveLow() <= low {
-				isLow = false
+			// Tie-break on equal high/low: an earlier bar (j < i) tying the candidate
+			// disqualifies it (the earlier occurrence is the pivot), but a later bar
+			// (j > i) merely tying does not — otherwise a flat-top/flat-bottom plateau
+			// disqualifies every bar in it and the swing is silently dropped entirely.
+			if j < i {
+				if candles[j].EffectiveHigh() >= high {
+					isHigh = false
+				}
+				if candles[j].EffectiveLow() <= low {
+					isLow = false
+				}
+			} else {
+				if candles[j].EffectiveHigh() > high {
+					isHigh = false
+				}
+				if candles[j].EffectiveLow() < low {
+					isLow = false
+				}
 			}
 			if !isHigh && !isLow {
 				break
@@ -186,8 +199,14 @@ func buildLevels(candles []ohlcv.Candle, swings []SwingPoint, atr float64, opts 
 			resistancePoints = append(resistancePoints, swing)
 		}
 	}
-	supports := clusterLevels(candles, supportPoints, "horizontal_support", atr, opts.MaxLevels)
-	resistances := clusterLevels(candles, resistancePoints, "horizontal_resistance", atr, opts.MaxLevels)
+	// clusterLevels intentionally does not truncate to MaxLevels itself: truncating a
+	// same-kind (swing-low/swing-high) list before normalizeHorizontalLevelsByPrice
+	// reclassifies each cluster as support or resistance relative to the current price
+	// would let same-kind candidates crowd out slots before we know which final bucket
+	// they belong to (e.g. a stale swing-high cluster now below price, which should
+	// count as support). limitLevels below applies the real cap after classification.
+	supports := clusterLevels(candles, supportPoints, "horizontal_support", atr)
+	resistances := clusterLevels(candles, resistancePoints, "horizontal_resistance", atr)
 	supports, resistances = normalizeHorizontalLevelsByPrice(supports, resistances, candles[len(candles)-1].EffectiveClose())
 	sort.SliceStable(supports, func(i, j int) bool {
 		if supports[i].Strength == supports[j].Strength {
@@ -257,9 +276,10 @@ func limitLevels(levels []Level, limit int) []Level {
 type levelCluster struct {
 	points []SwingPoint
 	price  float64
+	seed   float64
 }
 
-func clusterLevels(candles []ohlcv.Candle, points []SwingPoint, kind string, atr float64, limit int) []Level {
+func clusterLevels(candles []ohlcv.Candle, points []SwingPoint, kind string, atr float64) []Level {
 	sort.SliceStable(points, func(i, j int) bool { return points[i].Price < points[j].Price })
 	avgVolume := averageVolume(candles)
 	clusters := make([]levelCluster, 0)
@@ -267,7 +287,14 @@ func clusterLevels(candles []ohlcv.Candle, points []SwingPoint, kind string, atr
 		tol := levelTolerance(point.Price, atr)
 		merged := false
 		for i := range clusters {
-			if math.Abs(point.Price-clusters[i].price) <= tol {
+			// Membership is tested against the cluster's original seed price, not its
+			// continuously-updated weighted mean. Comparing against a drifting mean lets
+			// a monotonic run of points (e.g. a sloped sequence of higher lows) chain
+			// together transitively, each one within tolerance of the last update but
+			// the cluster as a whole spanning far more than `tol` end to end — which
+			// then gets reported as one flat level. Anchoring to the seed bounds the
+			// cluster's total width to at most 2*tol.
+			if math.Abs(point.Price-clusters[i].seed) <= tol {
 				clusters[i].points = append(clusters[i].points, point)
 				clusters[i].price = weightedLevelPrice(clusters[i].points)
 				merged = true
@@ -275,7 +302,7 @@ func clusterLevels(candles []ohlcv.Candle, points []SwingPoint, kind string, atr
 			}
 		}
 		if !merged {
-			clusters = append(clusters, levelCluster{points: []SwingPoint{point}, price: point.Price})
+			clusters = append(clusters, levelCluster{points: []SwingPoint{point}, price: point.Price, seed: point.Price})
 		}
 	}
 	levels := make([]Level, 0, len(clusters))
@@ -309,9 +336,6 @@ func clusterLevels(candles []ohlcv.Candle, points []SwingPoint, kind string, atr
 		}
 		return levels[i].Strength > levels[j].Strength
 	})
-	if len(levels) > limit {
-		levels = levels[:limit]
-	}
 	return levels
 }
 
@@ -371,12 +395,12 @@ func trendlineCandidates(candles []ohlcv.Candle, points []SwingPoint, kind strin
 				continue
 			}
 			slope := mathutil.SafeDiv(points[j].Price-points[i].Price, float64(span))
-			touches, violations := trendlineTouchStats(candles, points[i].Index, points[i].Price, slope, kind, atr)
+			touches, weightedTouches, violations := trendlineTouchStats(candles, points[i].Index, points[i].Price, slope, kind, atr)
 			if touches < 2 {
 				continue
 			}
 			lengthScore := mathutil.Clamp(float64(span)/lengthTarget, 0, 1)
-			touchScore := mathutil.Clamp(float64(touches)/6, 0, 1)
+			touchScore := mathutil.Clamp(weightedTouches/6, 0, 1)
 			violationScore := 1 - mathutil.Clamp(float64(violations)/math.Max(4, float64(touches)+3), 0, 1)
 			recencyScore := 1 - mathutil.Clamp(float64(len(candles)-1-points[j].Index)/recencyTarget, 0, 1)
 			endIdx := len(candles) - 1
@@ -453,7 +477,7 @@ func recentCounterTrendlines(candles []ohlcv.Candle, atr float64, opts Options) 
 			if endPrice <= 0 {
 				continue
 			}
-			touches, violations := trendlineTouchStats(candles, highs[i].Index, highs[i].Price, slope, "resistance_trendline", atr)
+			touches, weightedTouches, violations := trendlineTouchStats(candles, highs[i].Index, highs[i].Price, slope, "resistance_trendline", atr)
 			if touches < 2 {
 				continue
 			}
@@ -462,7 +486,7 @@ func recentCounterTrendlines(candles []ohlcv.Candle, atr float64, opts Options) 
 				proximity = 1 - mathutil.Clamp(math.Abs(endPrice-current)/(current*0.45), 0, 1)
 			}
 			recency := 1 - mathutil.Clamp(float64(len(candles)-1-highs[j].Index)/float64(window), 0, 1)
-			touchScore := mathutil.Clamp(float64(touches)/5, 0, 1)
+			touchScore := mathutil.Clamp(weightedTouches/5, 0, 1)
 			violationScore := 1 - mathutil.Clamp(float64(violations)/math.Max(4, float64(touches)+3), 0, 1)
 			spanScore := mathutil.Clamp(float64(span)/float64(maxSpan), 0, 1)
 			strength := mathutil.Clamp(touchScore*0.28+violationScore*0.24+proximity*0.24+recency*0.14+spanScore*0.10, 0, 1)
@@ -504,9 +528,11 @@ func containsSimilarTrendline(candidates []trendLineCandidate, target trendLineC
 	return false
 }
 
-func trendlineTouchStats(candles []ohlcv.Candle, startIdx int, startPrice, slope float64, kind string, atr float64) (int, int) {
-	touches := 0
-	violations := 0
+// trendlineTouchStats returns the accurate touch count (touches, matching the number of
+// touch markers collectTouchPoints would draw), a volume-weighted touch score
+// (weightedTouches, which counts a volume-confirmed touch as worth more toward
+// strength without inflating the reported count), and the violation count.
+func trendlineTouchStats(candles []ohlcv.Candle, startIdx int, startPrice, slope float64, kind string, atr float64) (touches int, weightedTouches float64, violations int) {
 	tol := trendlineStatsTolerance(startPrice, atr)
 	avgVol := averageVolume(candles)
 	for i := startIdx; i < len(candles); i++ {
@@ -518,8 +544,9 @@ func trendlineTouchStats(candles []ohlcv.Candle, startIdx int, startPrice, slope
 		case "support_trendline":
 			if math.Abs(candles[i].EffectiveLow()-expected) <= tol {
 				touches++
+				weightedTouches++
 				if avgVol > 0 && candles[i].EffectiveVolume() > avgVol*1.5 {
-					touches++ // volume-confirmed touch counts double
+					weightedTouches++ // volume-confirmed touch weighs double toward strength only
 				}
 			}
 			if candles[i].EffectiveClose() < expected-tol {
@@ -528,8 +555,9 @@ func trendlineTouchStats(candles []ohlcv.Candle, startIdx int, startPrice, slope
 		case "resistance_trendline":
 			if math.Abs(candles[i].EffectiveHigh()-expected) <= tol {
 				touches++
+				weightedTouches++
 				if avgVol > 0 && candles[i].EffectiveVolume() > avgVol*1.5 {
-					touches++
+					weightedTouches++
 				}
 			}
 			if candles[i].EffectiveClose() > expected+tol {
@@ -537,7 +565,7 @@ func trendlineTouchStats(candles []ohlcv.Candle, startIdx int, startPrice, slope
 			}
 		}
 	}
-	return touches, violations
+	return touches, weightedTouches, violations
 }
 
 func collectTouchPoints(candles []ohlcv.Candle, startIdx int, startPrice, slope float64, kind string, atr float64) []TimePrice {
@@ -758,7 +786,12 @@ func detectTriangle(candles []ohlcv.Candle, supports, resistances []Level, trend
 		return PatternResult{}, false
 	}
 	status := patternBreakStatus(candles, lower.line.End.Price, upper.line.End.Price, atr)
-	height := math.Abs(upper.line.Start.Price - lower.line.Start.Price)
+	// Measured-move height uses the triangle's width at its widest (start) point,
+	// evaluated at a common bar index (startDistance, computed above) rather than each
+	// trendline's own unrelated start bar — the two candidate trendlines are selected
+	// independently and their raw Start.Price fields are not a valid vertical
+	// cross-section of the pattern.
+	height := startDistance
 	targets := []float64{round2(upper.line.End.Price + height*0.5), round2(upper.line.End.Price + height)}
 	confidence := mathutil.Clamp(0.44+float64(upper.line.TouchCount+lower.line.TouchCount)*0.055+(1-mathutil.SafeDiv(endDistance, startDistance))*0.25, 0, 0.88)
 	result := patternFromLines(name, "triangle", confidence, status, candles, *upper, *lower, lower.line.End.Price, upper.line.End.Price)
@@ -781,7 +814,12 @@ func detectWedge(candles []ohlcv.Candle, trendlines []trendLineCandidate, atr fl
 	if upper.line.Slope*lower.line.Slope <= 0 {
 		return PatternResult{}, false
 	}
-	startDistance := upper.line.Start.Price - lower.line.Start.Price
+	// upper/lower are independently selected trendline candidates, each anchored at its
+	// own start bar — evaluate both lines at a shared index (like the triangle path
+	// does) rather than subtracting their unrelated Start.Price fields directly.
+	wedgeStartIdx := maxInt(upper.startIdx, lower.startIdx)
+	startDistance := lineValue(upper.startIdx, upper.startPrice, upper.line.Slope, wedgeStartIdx) -
+		lineValue(lower.startIdx, lower.startPrice, lower.line.Slope, wedgeStartIdx)
 	endDistance := upper.line.End.Price - lower.line.End.Price
 	if startDistance <= 0 || endDistance <= 0 || endDistance > startDistance*0.78 {
 		return PatternResult{}, false
@@ -868,7 +906,9 @@ func bestWedgeTrendlinePair(candles []ohlcv.Candle, trendlines []trendLineCandid
 			if lower.line.Type != "support_trendline" || upper.line.Slope*lower.line.Slope <= 0 {
 				continue
 			}
-			startDistance := upper.line.Start.Price - lower.line.Start.Price
+			startIdx := maxInt(upper.startIdx, lower.startIdx)
+			startDistance := lineValue(upper.startIdx, upper.startPrice, upper.line.Slope, startIdx) -
+				lineValue(lower.startIdx, lower.startPrice, lower.line.Slope, startIdx)
 			endDistance := upper.line.End.Price - lower.line.End.Price
 			if startDistance <= 0 || endDistance <= 0 || endDistance > startDistance*0.78 {
 				continue
@@ -1105,7 +1145,7 @@ func buildScenarios(candles []ohlcv.Candle, current float64, supports, resistanc
 	if ma.Signal == "bearish" {
 		score -= 0.10
 	}
-	if mainSupport != nil && math.Abs(current-mainSupport.Price)/current < 0.03 {
+	if mainSupport != nil && mathutil.SafeDiv(math.Abs(current-mainSupport.Price), current) < 0.03 {
 		score += 0.07
 	}
 	scenarios := make([]Scenario, 0, 3)
@@ -1528,7 +1568,7 @@ func parallelEnvelopeTrendline(candles []ohlcv.Candle, anchor trendLineCandidate
 	if startPrice <= 0 || endPrice <= 0 {
 		return trendLineCandidate{}, false
 	}
-	touches, violations := trendlineTouchStats(candles, startIdx, startPrice, slope, touchKind, 0)
+	touches, weightedTouches, violations := trendlineTouchStats(candles, startIdx, startPrice, slope, touchKind, 0)
 	if touches < 2 {
 		return trendLineCandidate{}, false
 	}
@@ -1536,7 +1576,7 @@ func parallelEnvelopeTrendline(candles []ohlcv.Candle, anchor trendLineCandidate
 		return trendLineCandidate{}, false
 	}
 	span := endIdx - startIdx
-	touchScore := mathutil.Clamp(float64(touches)/8, 0, 1)
+	touchScore := mathutil.Clamp(weightedTouches/8, 0, 1)
 	spanScore := mathutil.Clamp(float64(span)/math.Max(1, float64(len(candles))*0.7), 0, 1)
 	violationScore := 1 - mathutil.Clamp(float64(violations)/math.Max(4, float64(touches)+3), 0, 1)
 	strength := mathutil.Clamp(anchor.line.Strength*0.45+touchScore*0.25+spanScore*0.18+violationScore*0.12, 0, 1)

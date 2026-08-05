@@ -7,7 +7,46 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"hissebot/internal/ta/ohlcv"
 )
+
+// TestValidateChartCacheContinuityCatchesOutOfOrderRegardlessOfGapTolerance mirrors
+// TestValidateTimeframeCandleContinuityCatchesOutOfOrderRegardlessOfGapTolerance in
+// internal/ta/analysis: chartCacheMaxAllowedGap only returns a nonzero tolerance for
+// 1D/1W/1M, and the old implementation used that as a signal to skip the
+// ordering/duplicate check entirely for every other timeframe.
+func TestValidateChartCacheContinuityCatchesOutOfOrderRegardlessOfGapTolerance(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	outOfOrder := []ohlcv.Candle{
+		{Time: base, Close: 100},
+		{Time: base.AddDate(0, 0, 2), Close: 101},
+		{Time: base.AddDate(0, 0, 1), Close: 102},
+	}
+	duplicate := []ohlcv.Candle{
+		{Time: base, Close: 100},
+		{Time: base.AddDate(0, 0, 1), Close: 101},
+		{Time: base.AddDate(0, 0, 1), Close: 102},
+	}
+	wellOrdered := []ohlcv.Candle{
+		{Time: base, Close: 100},
+		{Time: base.AddDate(0, 0, 1), Close: 101},
+		{Time: base.AddDate(0, 0, 2), Close: 102},
+	}
+
+	for _, timeframe := range []string{"1D", "3M", "6M", "1Y", "YTD", "ALL"} {
+		if err := validateChartCacheContinuity(outOfOrder, timeframe); err == nil {
+			t.Errorf("timeframe %s: expected error for out-of-order candles, got nil", timeframe)
+		}
+		if err := validateChartCacheContinuity(duplicate, timeframe); err == nil {
+			t.Errorf("timeframe %s: expected error for duplicate timestamps, got nil", timeframe)
+		}
+		if err := validateChartCacheContinuity(wellOrdered, timeframe); err != nil {
+			t.Errorf("timeframe %s: unexpected error for well-ordered candles: %v", timeframe, err)
+		}
+	}
+}
 
 func TestChartCacheProviderReadsCachedWeeklyCandles(t *testing.T) {
 	dir := t.TempDir()

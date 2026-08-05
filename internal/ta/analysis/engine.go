@@ -1233,10 +1233,13 @@ func validateTimeframeCandleContinuity(candles []ohlcv.Candle, timeframe string)
 	if len(candles) < 3 {
 		return nil
 	}
-	maxGap := maxAllowedCandleGap(timeframe)
-	if maxGap <= 0 {
-		return nil
-	}
+	// Every indicator/pattern/formation computation indexes candles by position
+	// (candles[len(candles)-1] as "current bar", rolling lookback windows, etc.) and
+	// trusts that index order matches chronological order. That must hold for every
+	// timeframe, not just the ones with a configured gap tolerance below — a missing or
+	// unusually large gap is timeframe-specific and may be legitimate (holidays,
+	// illiquid names), but non-increasing or duplicate timestamps are never legitimate
+	// and would silently corrupt every downstream calculation.
 	previous := candles[0].Time
 	for i := 1; i < len(candles); i++ {
 		current := candles[i].Time
@@ -1246,8 +1249,16 @@ func validateTimeframeCandleContinuity(candles []ohlcv.Candle, timeframe string)
 		if !current.After(previous) {
 			return fmt.Errorf("%s candles are not strictly increasing at %s then %s", timeframe, previous.Format("2006-01-02"), current.Format("2006-01-02"))
 		}
-		gap := current.Sub(previous)
-		if gap > maxGap {
+		previous = current
+	}
+	maxGap := maxAllowedCandleGap(timeframe)
+	if maxGap <= 0 {
+		return nil
+	}
+	previous = candles[0].Time
+	for i := 1; i < len(candles); i++ {
+		current := candles[i].Time
+		if gap := current.Sub(previous); gap > maxGap {
 			return fmt.Errorf("%s candle temporal gap %s exceeds %s between %s and %s", timeframe, gap, maxGap, previous.Format("2006-01-02"), current.Format("2006-01-02"))
 		}
 		previous = current
@@ -1672,6 +1683,13 @@ func ComputeNextSessionForecastFromCandles(candles []ohlcv.Candle, assetType str
 func ComputeNextSessionForecastFromCandlesContext(ctx context.Context, candles []ohlcv.Candle, assetType string) (NextSessionForecast, error) {
 	if len(candles) == 0 {
 		return NextSessionForecast{}, fmt.Errorf("next-session forecast requires candles: %w", indicators.ErrInsufficientData)
+	}
+	// Unlike analyzeTimeframe, this entry point does not go through
+	// filterCandlesThroughAsOf/normalizeTimeframeWindow, so it needs its own ordering
+	// check — every downstream indicator/pattern/formation call below trusts that
+	// index order matches chronological order.
+	if err := validateTimeframeCandleContinuity(candles, "1D"); err != nil {
+		return NextSessionForecast{}, fmt.Errorf("next-session forecast candle continuity: %w", err)
 	}
 	snapshot, err := indicators.Snapshot(candles)
 	if err != nil {

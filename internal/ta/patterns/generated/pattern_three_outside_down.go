@@ -6,7 +6,7 @@ func init() {
 		Name:       "Three Outside Down",
 		Category:   "candlestick",
 		Group:      "uc_mum_formasyonlari",
-		Direction:  "neutral",
+		Direction:  "bearish",
 		Template:   "candlestick",
 		Confidence: 0.66,
 		Evidence:   "candlestick geometry matched the named setup",

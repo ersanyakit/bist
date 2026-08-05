@@ -1,6 +1,8 @@
 package indicators
 
 import (
+	"math"
+
 	"hissebot/internal/ta/ohlcv"
 	"hissebot/pkg/mathutil"
 )
@@ -11,6 +13,15 @@ type DivergenceSignal struct {
 	Bullish bool
 	// Bearish: price made a higher high while the oscillator made a lower high.
 	Bearish bool
+}
+
+// divergenceMaxAge bounds how many bars old the most recent price swing may be for a
+// divergence signal to still be considered active. Without this, a divergence formed
+// once at a swing point would keep reporting true indefinitely as long as no newer
+// swing of the same kind has printed since — even hundreds of bars later, long after
+// the setup it described has stopped being a live, actionable reversal signal.
+func divergenceMaxAge(swingLookback int) int {
+	return swingLookback*8 + 10
 }
 
 // RSIDivergence detects classic RSI divergence using the last two confirmed swing
@@ -26,8 +37,9 @@ func RSIDivergence(candles []ohlcv.Candle, rsiPeriod, swingLookback int) Diverge
 	priceLows, priceHighs := swingExtremes(cls, swingLookback)
 	rsiLows, rsiHighs := swingExtremes(rsiSeries, swingLookback)
 
-	bull := bullishDivergence(priceLows, rsiLows)
-	bear := bearishDivergence(priceHighs, rsiHighs)
+	maxAge := divergenceMaxAge(swingLookback)
+	bull := bullishDivergence(priceLows, rsiLows, len(cls), maxAge)
+	bear := bearishDivergence(priceHighs, rsiHighs, len(cls), maxAge)
 	return DivergenceSignal{Bullish: bull, Bearish: bear}
 }
 
@@ -42,8 +54,9 @@ func MACDHistogramDivergence(candles []ohlcv.Candle, swingLookback int) Divergen
 	priceLows, priceHighs := swingExtremes(cls, swingLookback)
 	histLows, histHighs := swingExtremes(histSeries, swingLookback)
 
-	bull := bullishDivergence(priceLows, histLows)
-	bear := bearishDivergence(priceHighs, histHighs)
+	maxAge := divergenceMaxAge(swingLookback)
+	bull := bullishDivergence(priceLows, histLows, len(cls), maxAge)
+	bear := bearishDivergence(priceHighs, histHighs, len(cls), maxAge)
 	return DivergenceSignal{Bullish: bull, Bearish: bear}
 }
 
@@ -105,37 +118,59 @@ func swingExtremes(series []float64, lookback int) (lows, highs []swingExtreme) 
 	return lows, highs
 }
 
+// greaterWithTolerance reports whether a is meaningfully greater than b, using a
+// magnitude-scaled additive tolerance rather than multiplying the signed value itself —
+// multiplying by (1+Epsilon) loosens the comparison for positive b but tightens it (the
+// wrong direction) for negative b, which matters for oscillators like the MACD
+// histogram that are routinely negative.
+func greaterWithTolerance(a, b float64) bool {
+	return a > b+math.Abs(b)*mathutil.Epsilon
+}
+
+// lessWithTolerance is the mirror of greaterWithTolerance for "meaningfully less than".
+func lessWithTolerance(a, b float64) bool {
+	return a < b-math.Abs(b)*mathutil.Epsilon
+}
+
 // bullishDivergence: price makes a lower low while the oscillator makes a higher low.
-func bullishDivergence(priceLows, oscLows []swingExtreme) bool {
+// seriesLen/maxAge bound how stale the most recent price swing may be — see
+// divergenceMaxAge.
+func bullishDivergence(priceLows, oscLows []swingExtreme, seriesLen, maxAge int) bool {
 	if len(priceLows) < 2 || len(oscLows) < 2 {
 		return false
 	}
 	pLast := priceLows[len(priceLows)-1]
+	if seriesLen-1-pLast.idx > maxAge {
+		return false
+	}
 	pPrev := priceLows[len(priceLows)-2]
 	oLast := lastSwingBefore(oscLows, pLast.idx)
-	oPrev := lastSwingBefore(oscLows, pPrev.idx+1)
+	oPrev := lastSwingBefore(oscLows, pPrev.idx)
 	if oLast == nil || oPrev == nil {
 		return false
 	}
-	priceLowerLow := pLast.value < pPrev.value*(1-mathutil.Epsilon)
-	oscHigherLow := oLast.value > oPrev.value*(1+mathutil.Epsilon)
+	priceLowerLow := lessWithTolerance(pLast.value, pPrev.value)
+	oscHigherLow := greaterWithTolerance(oLast.value, oPrev.value)
 	return priceLowerLow && oscHigherLow
 }
 
 // bearishDivergence: price makes a higher high while the oscillator makes a lower high.
-func bearishDivergence(priceHighs, oscHighs []swingExtreme) bool {
+func bearishDivergence(priceHighs, oscHighs []swingExtreme, seriesLen, maxAge int) bool {
 	if len(priceHighs) < 2 || len(oscHighs) < 2 {
 		return false
 	}
 	pLast := priceHighs[len(priceHighs)-1]
+	if seriesLen-1-pLast.idx > maxAge {
+		return false
+	}
 	pPrev := priceHighs[len(priceHighs)-2]
 	oLast := lastSwingBefore(oscHighs, pLast.idx)
-	oPrev := lastSwingBefore(oscHighs, pPrev.idx+1)
+	oPrev := lastSwingBefore(oscHighs, pPrev.idx)
 	if oLast == nil || oPrev == nil {
 		return false
 	}
-	priceHigherHigh := pLast.value > pPrev.value*(1+mathutil.Epsilon)
-	oscLowerHigh := oLast.value < oPrev.value*(1-mathutil.Epsilon)
+	priceHigherHigh := greaterWithTolerance(pLast.value, pPrev.value)
+	oscLowerHigh := lessWithTolerance(oLast.value, oPrev.value)
 	return priceHigherHigh && oscLowerHigh
 }
 

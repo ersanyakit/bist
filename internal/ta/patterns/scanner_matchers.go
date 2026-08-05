@@ -546,32 +546,57 @@ func matchCandlestickAlias(spec patternSpec, c []ohlcv.Candle) generatedMatch {
 		return two(directionOK(spec.Direction, bull, bear), "harami or inside-bar containment matched")
 	}
 	if strings.Contains(name, "piercing") {
-		return two(prev.bearish && cur.bullish && cur.close > (prev.open+prev.close)/2, "piercing-line recovery matched")
+		return two(downtrend(c, i-1, 4) && prev.bearish && cur.bullish && cur.close > (prev.open+prev.close)/2, "piercing-line recovery matched")
 	}
 	if strings.Contains(name, "dark cloud") {
-		return two(prev.bullish && cur.bearish && cur.close < (prev.open+prev.close)/2, "dark-cloud close below midpoint matched")
+		return two(uptrend(c, i-1, 4) && prev.bullish && cur.bearish && cur.close < (prev.open+prev.close)/2, "dark-cloud close below midpoint matched")
 	}
-	if strings.Contains(name, "tweezer top") || strings.Contains(name, "matching high") {
-		return two(near(prev.high, cur.high, 0.005), "matching adjacent highs matched")
+	if strings.Contains(name, "tweezer top") {
+		return two(uptrend(c, i-1, 5) && near(prev.high, cur.high, 0.005), "matching adjacent highs matched")
 	}
-	if strings.Contains(name, "tweezer bottom") || strings.Contains(name, "matching low") {
-		return two(near(prev.low, cur.low, 0.005), "matching adjacent lows matched")
+	if strings.Contains(name, "matching high") {
+		return two(prev.bullish && cur.bullish && near(prev.close, cur.close, 0.005), "two bullish candles closing near the same high matched")
+	}
+	if strings.Contains(name, "tweezer bottom") {
+		return two(downtrend(c, i-1, 5) && near(prev.low, cur.low, 0.005), "matching adjacent lows matched")
+	}
+	if strings.Contains(name, "matching low") {
+		return two(prev.bearish && cur.bearish && near(prev.close, cur.close, 0.005), "two bearish candles closing near the same low matched")
 	}
 	if strings.Contains(name, "counterattack") || strings.Contains(name, "meeting line") {
 		return two(near(prev.close, cur.close, 0.006), "counterattack or meeting-line close alignment matched")
 	}
-	if strings.Contains(name, "kicking") || strings.Contains(name, "kicker") {
+	if strings.Contains(name, "kicking") {
+		// Kicking requires the defining full-range gap between the two marubozu-like
+		// candles — an opposite-color open beyond the prior open is not sufficient on
+		// its own (that looser test is "Kicker", handled below).
+		bull := prev.bearish && cur.bullish && cur.low > prev.high && cur.body >= prev.body*0.7
+		bear := prev.bullish && cur.bearish && cur.high < prev.low && cur.body >= prev.body*0.7
+		return two(directionOK(spec.Direction, bull, bear), "forceful opposite-color kicking structure with a full-range gap matched")
+	}
+	if strings.Contains(name, "kicker") {
 		bull := prev.bearish && cur.bullish && cur.open > prev.open && cur.body >= prev.body*0.7
 		bear := prev.bullish && cur.bearish && cur.open < prev.open && cur.body >= prev.body*0.7
-		return two(directionOK(spec.Direction, bull, bear), "forceful opposite-color kicking structure matched")
+		return two(directionOK(spec.Direction, bull, bear), "forceful opposite-color kicker structure matched")
 	}
 	if strings.Contains(name, "separating") {
 		bull := prev.bearish && cur.bullish && near(prev.open, cur.open, 0.01)
 		bear := prev.bullish && cur.bearish && near(prev.open, cur.open, 0.01)
 		return two(directionOK(spec.Direction, bull, bear), "same-open separating lines matched")
 	}
-	if strings.Contains(name, "neck") || strings.Contains(name, "thrusting") {
-		return two(prev.bearish && cur.bullish && cur.close > prev.close && cur.close < (prev.open+prev.close)/2, "neck or thrusting recovery matched")
+	// On Neck / In Neck / Thrusting differ only by how far the bullish reaction
+	// recovers into the prior bearish body: On Neck barely reaches the prior low, In
+	// Neck barely reaches the prior close, Thrusting goes meaningfully past the close
+	// but stops short of the midpoint. Collapsing all three into one condition (as a
+	// single prior implementation did) makes them indistinguishable.
+	if strings.Contains(name, "on neck") {
+		return two(prev.bearish && cur.bullish && near(cur.close, prev.low, 0.01), "on-neck close near the prior low matched")
+	}
+	if strings.Contains(name, "in neck") {
+		return two(prev.bearish && cur.bullish && cur.close >= prev.close && near(cur.close, prev.close, 0.005), "in-neck close near the prior close matched")
+	}
+	if strings.Contains(name, "thrusting") {
+		return two(prev.bearish && cur.bullish && cur.close > prev.close && !near(cur.close, prev.close, 0.005) && cur.close < (prev.open+prev.close)/2, "thrusting recovery into the prior body matched")
 	}
 	if strings.Contains(name, "homing pigeon") {
 		return two(prev.bearish && cur.bearish && cur.body < prev.body && cur.open < prev.open && cur.close > prev.close, "small bearish body nested inside a larger bearish body")
